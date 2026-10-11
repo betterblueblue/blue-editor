@@ -77,4 +77,4 @@ npm run dist              # 打包 → dist/（NSIS 安装包 + 绿色版，.md 
 
 ## License
 
-MIT © blue —— 第三方组件清单见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+MIT © betterblue —— 第三方组件清单见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

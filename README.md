@@ -5,6 +5,8 @@
 > A lightweight, offline-first WYSIWYG Markdown editor — Electron + Vditor.
 > No telemetry, no account, no auto-update phoning home.
 
+![Blue Editor](docs/screenshot-long.png)
+
 ![Blue Editor — 明亮主题](docs/screenshot-light.png)
 
 ![Blue Editor — 深色主题](docs/screenshot-dark.png)

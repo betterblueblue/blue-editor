@@ -426,11 +426,7 @@ body.no-toolbar #vditor:not(.vditor--fullscreen) .vditor-toolbar {
   display: none;
 }
 
-/* PNG 全文导出：截图瞬间展开内部滚动容器 */
-body.capture #vditor .vditor-content {
-  overflow: visible !important;
-  height: auto !important;
-}
+/* PNG 导出改用窗口拉高方案（main.js export.png），不再需要 capture 展开样式 */
 
 /* 打印/导出 PDF：只留编辑内容 */
 @media print {

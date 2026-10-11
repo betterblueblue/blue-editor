@@ -579,25 +579,29 @@ ipcMain.handle('export.html', async (e, html, defaultName) => {
 
 ipcMain.handle('export.png', async (e, clip, defaultName) => {
   const w = winOf(e);
-  const r = await dialog.showSaveDialog(w, {
-    defaultPath: defaultName || 'untitled.png',
-    filters: [{ name: 'PNG', extensions: ['png'] }]
-  });
+  if (!w) return null;
+  const r = clip.testPath
+    ? { filePath: clip.testPath } // 自动化冒烟用：跳过保存对话框
+    : await dialog.showSaveDialog(w, {
+        defaultPath: defaultName || 'untitled.png',
+        filters: [{ name: 'PNG', extensions: ['png'] }]
+      });
   if (r.canceled || !r.filePath) return null;
-  // 用 CDP captureBeyondViewport 截全文（clip = 页面坐标系的编辑区完整高度）
-  const dbg = w.webContents.debugger;
+  const [ow, oh] = w.getSize();
   try {
-    try { dbg.attach('1.3'); } catch (err) {}
-    const shot = await dbg.sendCommand('Page.captureScreenshot', {
-      format: 'png',
-      captureBeyondViewport: true,
-      clip: { x: clip.x, y: clip.y, width: clip.width, height: clip.height, scale: 1 }
-    });
-    fs.writeFileSync(r.filePath, Buffer.from(shot.data, 'base64'));
+    // captureBeyondViewport 对懒渲染合成层不稳定——直接把窗口拉到内容全高，
+    // 让全文落在真实视口内，重排 + 懒渲染走正常路径，再整窗截取编辑区
+    w.setContentSize(clip.x + clip.width + 1, Math.min(clip.height, 16000));
+    await new Promise(res => setTimeout(res, 900));
+    const image = await w.webContents.capturePage();
+    const cropped = image.crop({ x: clip.x, y: 0, width: clip.width, height: Math.min(clip.height, 16000) });
+    fs.writeFileSync(r.filePath, cropped.toPNG());
+    return { ok: true, path: r.filePath };
+  } catch (err) {
+    return { ok: false, error: err.message };
   } finally {
-    try { dbg.detach(); } catch (err) {}
+    w.setSize(ow, oh);
   }
-  return { ok: true, path: r.filePath };
 });
 
 // HTML 导出用的样式包：内联 Vditor 排版 + KaTeX + 代码高亮 css，

@@ -651,18 +651,22 @@ bridge.onMenuAction(async (action, payload) => {
     case 'export:png': {
       const vd = document.getElementById('vditor');
       const box = vd.getBoundingClientRect();
-      const content = document.querySelector('#vditor .vditor-content');
-      // clip = 编辑区完整高度（含滚动外内容，上限 16383 受纹理限制）
-      const h = box.top + Math.min((content ? content.scrollHeight : box.height), 16383);
-      document.body.classList.add('capture'); // 展开内部滚动容器
-      try {
-        await bridge.invoke('export.png',
-          { x: Math.round(box.left), y: Math.round(box.top),
-            width: Math.round(box.width), height: Math.round(h) },
-          exportName('.png'));
-      } finally {
-        document.body.classList.remove('capture');
+      // 真正的滚动容器是 .vditor-reset（scrollHeight=全文高），不是 .vditor-content
+      const content = document.querySelector('#vditor .vditor-reset')
+        || document.querySelector('#vditor .vditor-content');
+      // mermaid/echarts 等是视口懒渲染——先滚到底触发，再回顶
+      if (content) {
+        content.scrollTop = content.scrollHeight;
+        await new Promise(r => setTimeout(r, 800));
+        content.scrollTop = 0;
       }
+      // clip = 编辑区完整高度（含滚动外内容，上限 16383 受纹理限制）
+      const h = Math.min((content ? content.scrollHeight : box.height) + 20, 16383);
+      const r = await bridge.invoke('export.png',
+        { x: Math.round(box.left), y: 0,
+          width: Math.round(box.width), height: Math.round(h), testPath: null },
+        exportName('.png'));
+      if (r && r.ok === false) alert('PNG 导出失败: ' + r.error);
       break;
     }
     case 'export:pandoc': {

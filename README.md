@@ -1,4 +1,4 @@
-# Blue Editor
+# <img src="docs/logo.png" width="32" alt="Blue Editor"> Blue Editor
 
 轻量、离线优先的所见即所得 Markdown 桌面编辑器。
 

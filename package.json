@@ -1,13 +1,13 @@
 {
   "name": "blue-editor",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Blue Editor — lightweight, offline-first WYSIWYG Markdown editor (Electron + Vditor)",
   "author": "betterblue",
   "license": "MIT",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win"
+    "dist": "node scripts/collect-licenses.js && electron-builder --win"
   },
   "build": {
     "appId": "blue.editor",
@@ -19,6 +19,20 @@
       "src/**/*",
       "node_modules/vditor/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "LICENSE",
+        "to": "licenses/Blue Editor-LICENSE.txt"
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "licenses/THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "licenses",
+        "to": "licenses"
+      }
     ],
     "win": {
       "target": [

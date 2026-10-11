@@ -3,5 +3,6 @@ dist/
 *.log
 .DS_Store
 Thumbs.db
+licenses/
 # 会话交接文档只放本地，含内部背景信息，禁止提交
 HANDOFF.md

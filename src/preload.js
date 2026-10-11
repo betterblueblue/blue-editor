@@ -10,6 +10,7 @@ const ALLOWED_INVOKE = new Set([
   'draft.save', 'draft.clear',
   'export.pdf', 'export.html', 'export.png', 'export.cssBundle',
   'find', 'find.stop',
+  'shell.openExternal',
   'app.confirmClose', 'app.closeNow',
   'pandoc.isValid', 'pandoc.import', 'pandoc.export'
 ]);

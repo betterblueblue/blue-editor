@@ -25,12 +25,24 @@ Blue Editor 打包时随 Vditor 发行包包含下列库，各自保留其许可
 | Apache ECharts | Apache-2.0 |
 | markmap | MIT |
 | flowchart.js | MIT |
-| graphviz / Viz.js | MIT |
+| Viz.js（graphviz 渲染） | MIT（包装层） |
+| Graphviz（Viz.js 内置引擎） | EPL-1.0 |
 | abcjs | MIT |
 | smiles-drawer | MIT |
-| Wavedrom | BSD-3-Clause |
+| Wavedrom | MIT |
 | plantuml-encoder | MIT |
 | diff-match-patch | Apache-2.0 |
 
 各组件版权归其各自所有者所有。若上游许可证清单有变动，以各项目
 仓库内的 LICENSE 文件为准。
+
+## 关于 Graphviz / EPL-1.0 的源码说明
+
+Viz.js（https://github.com/mdaines/viz.js）发行包内嵌经 Emscripten 编译的
+Graphviz 引擎，该部分以 EPL-1.0 授权。其对应源码可从上述仓库及其上游
+Graphviz 项目（https://graphviz.org）获取。
+
+## 打包附带的许可证文本
+
+安装包内 `resources/licenses/` 目录收录本项目自身 LICENSE、本声明以及
+发行包中能找到的各组件 LICENSE 原文（`licenses/third-party/`）。

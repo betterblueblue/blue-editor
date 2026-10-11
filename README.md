@@ -60,6 +60,9 @@ npm run dist              # 打包 → dist/（NSIS 安装包 + 绿色版，.md 
 - Windows 优先验证；macOS / Linux 未测
 - 模式切换走 destroy+重建，撤销栈不保留
 - "全部替换"是源文本级替换（代码块内也会命中）
+- 文档里的远程图片打开时会联网加载（CSP `img-src` 放开）；
+  需要严格离线可自行收紧该指令
+- 第三方许可证原文见应用内「关于 → 开源许可」（`resources/licenses/`）
 
 ## 开发备忘（踩过的坑）
 

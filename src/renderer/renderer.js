@@ -6,6 +6,7 @@ let vditor = null;
 let currentPath = null;
 let dirty = false;
 let draftTimer = null;
+let draftId = null; // 未命名文档的草稿身份（窗口无关，恢复后可续用）
 let theme = 'classic';
 let mode = 'wysiwyg';
 
@@ -482,14 +483,17 @@ const markDirty = () => {
 };
 
 const flushDraft = () => {
-  if (vditor) bridge.invoke('draft.save', { path: currentPath, content: vditor.getValue() });
+  if (!vditor) return;
+  // 未命名文档第一次写草稿时生成稳定身份；之后恢复/清理都按它走
+  if (!currentPath && !draftId) draftId = 'w' + Date.now().toString(16) + Math.random().toString(16).slice(2, 8);
+  bridge.invoke('draft.save', { path: currentPath, draftId, content: vditor.getValue() });
 };
 
 const markClean = async () => {
   dirty = false;
   refreshTitle();
   clearTimeout(draftTimer);
-  await bridge.invoke('draft.clear');
+  // 草稿只在保存成功后清（见 save/saveAs）；loadDoc 不清，避免丢恢复数据
 };
 
 async function uploadHandler(files) {
@@ -539,13 +543,61 @@ function createEditor(initialValue) {
     toolbarConfig: { pin: true },
     counter: { enable: true },
     outline: { enable: false, position: 'left' },
+    link: { isOpen: false },
     upload: { handler: uploadHandler },
     input: () => { markDirty(); scheduleOutline(); },
     blur: () => { if (dirty) flushDraft(); },
-    after: () => resolve()
+    after: () => {
+      // 深色主题：皮肤由构造参数带上，内容/代码高亮主题要在这里补一次
+      // （包括启动和模式切换重建，两处都走到）
+      if (theme === 'dark') {
+        try { vditor.setTheme('dark', 'dark', 'github-dark'); } catch (e) {}
+      }
+      // link.click 选项在合并时被丢弃，只能在 inner 就绪后手动挂上
+      try {
+        vditor.vditor.options.link = vditor.vditor.options.link || {};
+        vditor.vditor.options.link.click = (a) => openLink(a.getAttribute('href'));
+      } catch (e) {}
+      resolve();
+    }
     });
   });
   return vditor;
+}
+
+// 文档内链接点击：http(s)/mailto 交系统浏览器；#anchor 页内跳转；
+// 相对 .md 链接按文档目录解析后在编辑器里打开；其余一律不理
+async function openLink(href) {
+  if (!href) return;
+  if (/^https?:/i.test(href) || href.startsWith('mailto:')) {
+    bridge.invoke('shell.openExternal', href);
+    return;
+  }
+  if (href.startsWith('#')) {
+    const el = document.getElementById(decodeURIComponent(href.slice(1)));
+    if (el) el.scrollIntoView();
+    return;
+  }
+  if (/^file:/i.test(href)) {
+    // linkBase 会把相对链接改写成 file:/// 绝对路径——md 系当文档打开，其余不理
+    const p = decodeURIComponent(href.replace(/^file:\/+/, '').replace(/\//g, '\\'));
+    const ext = p.slice(p.lastIndexOf('.')).toLowerCase();
+    if (!['.md', '.markdown', '.mdown', '.txt'].includes(ext)) return;
+    if (!(await guardDirty())) return;
+    const r = await bridge.invoke('file.read', p);
+    if (r && !r.error) loadDoc(r.path, r.content);
+    else alert('无法打开链接: ' + href);
+    return;
+  }
+  if (!currentPath) return;
+  const base = href.split('#')[0];
+  const full = dirname(currentPath).replace(/\\/g, '/') + '/' + base;
+  const ext = full.slice(full.lastIndexOf('.')).toLowerCase();
+  if (!['.md', '.markdown', '.mdown', '.txt'].includes(ext)) return;
+  if (!(await guardDirty())) return;
+  const r = await bridge.invoke('file.read', full);
+  if (r && !r.error) loadDoc(r.path, r.content);
+  else alert('无法打开链接: ' + href);
 }
 
 // 修改未保存时的护栏
@@ -558,6 +610,12 @@ async function guardDirty() {
 function loadDoc(path, content) {
   currentPath = path;
   dirty = false;
+  // 相对路径图片/链接按文档所在目录解析（Lute 渲染前设好 base）
+  try {
+    if (path && vditor.vditor.lute) {
+      vditor.vditor.lute.SetLinkBase('file:///' + dirname(path).replace(/\\/g, '/') + '/');
+    }
+  } catch (e) {}
   vditor.setValue(content);
   markClean();
   sidebarRefresh();
@@ -567,14 +625,20 @@ function loadDoc(path, content) {
 async function save() {
   if (!currentPath) return saveAs();
   const r = await bridge.invoke('file.save', currentPath, vditor.getValue());
-  if (r && r.ok) markClean();
-  else alert('保存失败: ' + (r && r.error));
+  if (r && r.ok) {
+    await bridge.invoke('draft.clear', currentPath, draftId);
+    draftId = null;
+    markClean();
+  } else alert('保存失败: ' + (r && r.error));
 }
 
 async function saveAs() {
+  const prevPath = currentPath, prevDraft = draftId;
   const r = await bridge.invoke('file.saveAs', vditor.getValue(), currentPath || 'untitled.md');
   if (r && r.ok) {
+    await bridge.invoke('draft.clear', prevPath, prevDraft); // 清旧身份的草稿
     currentPath = r.path;
+    draftId = null;
     markClean();
     watchCurrentFile();
   }
@@ -703,9 +767,13 @@ bridge.onMenuAction(async (action, payload) => {
     case 'draft:restore': {
       // 启动时主进程推来的未保存草稿（按文档各一份）
       currentPath = payload.path || null;
+      draftId = payload.draftId || null;
       dirty = true;
+      if (currentPath) {
+        try { vditor.vditor.lute.SetLinkBase('file:///' + dirname(currentPath).replace(/\\/g, '/') + '/'); } catch (e) {}
+      }
       vditor.setValue(payload.content || '');
-      refreshTitle();
+      dirty = true; refreshTitle(); // 草稿本身是未保存状态
       sidebarRefresh();
       watchCurrentFile();
       break;

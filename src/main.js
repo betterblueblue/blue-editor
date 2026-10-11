@@ -90,7 +90,7 @@ function createWindow() {
     const dw = dirWatchers.get(w.id);
     if (dw) { try { dw.watcher.close(); } catch (err) {} dirWatchers.delete(w.id); }
     const fw = fileWatchers.get(w.id);
-    if (fw) { try { fs.unwatchFile(fw.path); } catch (err) {} fileWatchers.delete(w.id); }
+    if (fw) { try { fs.unwatchFile(fw.path, fw.listener); } catch (err) {} fileWatchers.delete(w.id); }
   });
   // 关窗前先问渲染层 dirty（未保存 → 三选一对话框）
   w.on('close', (e) => {
@@ -111,11 +111,7 @@ function createWindow() {
     if (/^https?:\/\//i.test(url) || url.startsWith('mailto:')) shell.openExternal(url);
   });
   w.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//i.test(url) || url.startsWith('mailto:')) {
-      shell.openExternal(url);
-      return { action: 'deny' };
-    }
-    if (url.startsWith('file://')) return { action: 'allow' };
+    if (/^https?:\/\//i.test(url) || url.startsWith('mailto:')) shell.openExternal(url);
     return { action: 'deny' };
   });
   w.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -220,16 +216,20 @@ function buildMenu() {
         { type: 'separator' },
         { role: 'resetZoom', label: '实际大小' },
         { role: 'zoomIn', label: '放大' },
-        { role: 'zoomOut', label: '缩小' },
-        { type: 'separator' },
-        { role: 'reload', label: '重新加载' },
-        { role: 'toggleDevTools', label: '开发者工具' }
+        { role: 'zoomOut', label: '缩小' }
       ]
     },
     {
       label: '关于',
       submenu: [
-        { label: 'Blue Editor v' + app.getVersion(), enabled: false }
+        { label: 'Blue Editor v' + app.getVersion(), enabled: false },
+        { label: '开源许可…', click: () => {
+          // 打包后 licenses/ 在 resources/ 下；开发时用构建脚本生成的目录
+          const dir = app.isPackaged
+            ? path.join(process.resourcesPath, 'licenses')
+            : path.join(__dirname, '..', 'licenses');
+          shell.openPath(dir);
+        } }
       ]
     }
   ];
@@ -321,8 +321,7 @@ ipcMain.handle('dir.list', (e, dir) => {
 });
 
 // 目录监听：按窗口各持一个（外部增删改 → 推 dir:changed，防抖合并）
-const dirWatchers = new Map(); // winId → {watcher, win, dir}
-let dirWatchTimer = null;
+const dirWatchers = new Map(); // winId → {watcher, win, dir, timer}
 ipcMain.handle('dir.watch', (e, dir) => {
   const w = winOf(e);
   const prev = dirWatchers.get(w.id);
@@ -331,35 +330,38 @@ ipcMain.handle('dir.watch', (e, dir) => {
   if (!dir) { dirWatchers.delete(w.id); return; }
   try {
     const watcher = fs.watch(dir, { recursive: true }, () => {
-      clearTimeout(dirWatchTimer);
-      dirWatchTimer = setTimeout(() => {
-        const rec = dirWatchers.get(w.id);
-        rec && !rec.win.isDestroyed() && rec.win.webContents.send('dir:changed');
+      const rec = dirWatchers.get(w.id);
+      if (!rec) return;
+      clearTimeout(rec.timer); // 防抖按窗口各自隔离，不能共用全局定时器
+      rec.timer = setTimeout(() => {
+        !rec.win.isDestroyed() && rec.win.webContents.send('dir:changed');
       }, 300);
     });
-    dirWatchers.set(w.id, { watcher, win: w, dir });
+    dirWatchers.set(w.id, { watcher, win: w, dir, timer: null });
   } catch (err) {
     dirWatchers.delete(w.id);
   }
 });
 
 // 当前文件外部修改监听：按窗口各持一个（轮询；自己保存按 mtime+窗口抑制）
-const fileWatchers = new Map(); // winId → {path, win}
+const fileWatchers = new Map(); // winId → {path, win, listener}
 let lastSavedMtime = 0;
 let lastSavedWinId = 0;
 ipcMain.handle('file.watch', (e, p) => {
   const w = winOf(e);
   const prev = fileWatchers.get(w.id);
   if (prev && prev.path === p) return;
-  if (prev) { try { fs.unwatchFile(prev.path); } catch (err) {} fileWatchers.delete(w.id); }
+  // unwatchFile 必须带上自己的 listener——不带参数会把别的窗口对同一文件的监听也摘掉
+  if (prev) { try { fs.unwatchFile(prev.path, prev.listener); } catch (err) {} fileWatchers.delete(w.id); }
   if (!p) return;
-  fileWatchers.set(w.id, { path: p, win: w });
+  const listener = (cur) => {
+    // 本窗口自己刚写入的不算外部修改
+    if (cur.mtimeMs === lastSavedMtime && w.id === lastSavedWinId) return;
+    w && !w.isDestroyed() && w.webContents.send('file:changed', p);
+  };
+  fileWatchers.set(w.id, { path: p, win: w, listener });
   try {
-    fs.watchFile(p, { interval: 800 }, (cur) => {
-      // 本窗口自己刚写入的不算外部修改
-      if (cur.mtimeMs === lastSavedMtime && w.id === lastSavedWinId) return;
-      w && !w.isDestroyed() && w.webContents.send('file:changed', p);
-    });
+    fs.watchFile(p, { interval: 800 }, listener);
   } catch (err) {}
 });
 
@@ -450,8 +452,14 @@ ipcMain.handle('file.openDialog', async (e) => {
 
 ipcMain.handle('file.read', (e, p) => readFileResult(p));
 
+// 渲染层请求用系统浏览器打开链接（只允许 http/https/mailto）
+ipcMain.handle('shell.openExternal', (e, url) => {
+  if (/^(https?:|mailto:)/i.test(url || '')) shell.openExternal(url);
+});
+
 function readFileResult(p) {
   try {
+    p = path.resolve(p); // 规范成绝对路径，渲染层拿到的 path 才能用于监听/对比
     const r = { path: p, content: fs.readFileSync(p, 'utf8'), name: path.basename(p) };
     addRecent(p);
     return r;
@@ -509,14 +517,14 @@ ipcMain.handle('file.saveAs', async (e, content, defaultPath) => {
   }
 });
 
-// ---------- 草稿备份（按文档路径 hash 存档；未命名文档按窗口 id）----------
-const draftName = (p, winId) =>
-  (p ? 'p-' + crypto.createHash('sha1').update(p).digest('hex') : 'u-' + winId) + '.json';
-const draftFile = (p, winId) => path.join(userData(), 'drafts', draftName(p, winId));
+// ---------- 草稿备份（按文档路径 hash 存档；未命名文档按 draftId）----------
+const draftName = (p, draftId) =>
+  (p ? 'p-' + crypto.createHash('sha1').update(p).digest('hex') : 'u-' + (draftId || 'x')) + '.json';
+const draftFile = (p, draftId) => path.join(userData(), 'drafts', draftName(p, draftId));
 
 ipcMain.handle('draft.save', (e, payload) => {
   try {
-    const f = draftFile(payload.path, winOf(e).id);
+    const f = draftFile(payload.path, payload.draftId);
     fs.mkdirSync(path.dirname(f), { recursive: true });
     fs.writeFileSync(f, JSON.stringify({ ...payload, savedAt: Date.now() }));
     return true;
@@ -525,11 +533,9 @@ ipcMain.handle('draft.save', (e, payload) => {
   }
 });
 
-ipcMain.handle('draft.clear', (e, p) => {
-  const wId = winOf(e).id;
-  [draftFile(p, wId), draftFile(null, wId)].forEach(f => {
-    try { fs.unlinkSync(f); } catch (err) {}
-  });
+// 只有保存成功后渲染层才调：按草稿身份（path 或 draftId）精确删除
+ipcMain.handle('draft.clear', (e, p, draftId) => {
+  try { fs.unlinkSync(draftFile(p || null, draftId)); } catch (err) {}
 });
 
 // 启动时把 drafts/ 里每个草稿恢复到独立窗口（多文档未保存不串档）
@@ -539,13 +545,26 @@ function restoreDrafts() {
   try {
     drafts = fs.readdirSync(dir).filter(f => f.endsWith('.json'))
       .map(f => {
-        try { return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); }
-        catch (e) { return null; }
+        try {
+          const d = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+          // u-<draftId>.json 的旧草稿可能没有 draftId 字段，从文件名补出来
+          if (d) d.draftId = d.draftId || (f.match(/^u-(.+)\.json$/) || [])[1];
+          return d;
+        } catch (e) { return null; }
       })
       .filter(d => d && d.content)
       .sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0));
   } catch (e) {}
   drafts.forEach(d => {
+    // 磁盘内容与草稿一致 → 是已保存后的残留，直接删掉，不再弹脏窗口
+    if (d.path) {
+      try {
+        if (fs.existsSync(d.path) && fs.readFileSync(d.path, 'utf8') === d.content) {
+          fs.unlinkSync(draftFile(d.path, d.draftId));
+          return;
+        }
+      } catch (e) {}
+    }
     const w = createWindow();
     const go = () => w.webContents.send('menu:action', { action: 'draft:restore', payload: d });
     if (w.webContents.isLoading()) w.webContents.once('did-finish-load', go);

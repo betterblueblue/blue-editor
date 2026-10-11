@@ -1,0 +1,722 @@
+// 主进程：薄壳——窗口、文件读写、设置、最近文档、草稿备份、argv/单实例、导出、pandoc
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
+const { spawn } = require('child_process');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+const userData = () => app.getPath('userData');
+const confPath = () => path.join(userData(), 'conf', 'conf.user.json');
+const assetsDirOf = (p) => p.replace(/\.[^.\\]+$/, '') + '.assets';
+
+// ---------- 设置 ----------
+function readConf() {
+  try {
+    return JSON.parse(fs.readFileSync(confPath(), 'utf8'));
+  } catch (e) {
+    return {};
+  }
+}
+
+function writeConf(conf) {
+  fs.mkdirSync(path.dirname(confPath()), { recursive: true });
+  fs.writeFileSync(confPath(), JSON.stringify(conf, null, 2));
+}
+
+const setting = {
+  get: (k) => readConf()[k],
+  put: (k, v) => {
+    const c = readConf();
+    c[k] = v;
+    writeConf(c);
+  }
+};
+
+// ---------- argv 文件路径 ----------
+function getFilePath(argv, cwd) {
+  let p;
+  for (let i = argv.length - 1; i >= 0; i--) {
+    if (argv[i][0] === '-') continue;
+    if (argv[i] === process.execPath) continue; // 打包后 argv[0] 是自身 exe
+    p = argv[i];
+    break;
+  }
+  if (!p) return null;
+  if (/^file:\/\//i.test(p)) {
+    p = p.replace(/^file:\/\//i, '');
+    try { p = decodeURI(p); } catch (e) {}
+  }
+  p = path.resolve(cwd || process.cwd(), p);
+  // 自身入口（dev 模式 "."）或目录不算
+  if (p === path.resolve(cwd || process.cwd(), '.') || isDir(p)) return null;
+  return p;
+}
+
+function isDir(p) {
+  try { return fs.statSync(p).isDirectory(); } catch (e) { return false; }
+}
+
+const MD_EXT = ['.md', '.markdown', '.mdown', '.txt'];
+function isOpenable(p) {
+  return MD_EXT.includes(path.extname(p).toLowerCase());
+}
+
+// ---------- 窗口 ----------
+let win;                 // 最近聚焦窗口（菜单动作默认路由目标）
+const wins = new Set();  // 全部窗口（每文档一窗口）
+
+const winOf = (e) => BrowserWindow.fromWebContents(e.sender);
+
+function createWindow() {
+  const w = new BrowserWindow({
+    width: 1100,
+    height: 760,
+    minWidth: 500,
+    minHeight: 400,
+    backgroundColor: setting.get('theme') === 'dark' ? '#1f1f1f' : '#ffffff',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false
+    }
+  });
+  wins.add(w);
+  w.on('focus', () => { win = w; });
+  w.on('closed', () => {
+    wins.delete(w);
+    if (win === w) win = null;
+    // 释放该窗口持有的监听
+    const dw = dirWatchers.get(w.id);
+    if (dw) { try { dw.watcher.close(); } catch (err) {} dirWatchers.delete(w.id); }
+    const fw = fileWatchers.get(w.id);
+    if (fw) { try { fs.unwatchFile(fw.path); } catch (err) {} fileWatchers.delete(w.id); }
+  });
+  // 关窗前先问渲染层 dirty（未保存 → 三选一对话框）
+  w.on('close', (e) => {
+    if (!w._allowClose) {
+      e.preventDefault();
+      w.webContents.send('menu:action', { action: 'app:closeRequest' });
+    }
+  });
+  w.webContents.on('found-in-page', (e, r) => {
+    if (!w.isDestroyed()) {
+      w.webContents.send('find:result', { matches: r.matches, active: r.activeMatchOrdinal });
+    }
+  });
+  // 导航/新窗口拦截：站内 file:// 放行；http(s)/mailto 走系统浏览器；其余一律拒绝
+  w.webContents.on('will-navigate', (e, url) => {
+    if (url.startsWith('file://')) return;
+    e.preventDefault();
+    if (/^https?:\/\//i.test(url) || url.startsWith('mailto:')) shell.openExternal(url);
+  });
+  w.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url) || url.startsWith('mailto:')) {
+      shell.openExternal(url);
+      return { action: 'deny' };
+    }
+    if (url.startsWith('file://')) return { action: 'allow' };
+    return { action: 'deny' };
+  });
+  w.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  win = w;
+  buildMenu();
+  return w;
+}
+
+function send(action, payload) {
+  const w = win || wins.values().next().value;
+  w && w.webContents.send('menu:action', { action, payload });
+}
+
+// 把 argv 文件投递给指定窗口（等页面就绪）
+function deliverTo(w, argv, cwd) {
+  const p = getFilePath(argv, cwd);
+  const go = () => {
+    if (p && isOpenable(p)) {
+      if (fs.existsSync(p)) {
+        w.webContents.send('menu:action', { action: 'file:openPath', payload: p });
+      } else {
+        w.webContents.send('menu:action', { action: 'file:newPath', payload: p });
+      }
+    } else if (p) {
+      dialog.showErrorBox('Blue Editor', '不支持的文件类型：' + p);
+    }
+  };
+  if (w.webContents.isLoading()) {
+    w.webContents.once('did-finish-load', go);
+  } else {
+    go();
+  }
+  w.focus();
+}
+
+// ---------- 菜单 ----------
+let pandocVersion = null; // null = 未检测/不可用
+
+function buildMenu() {
+  const recent = setting.get('recentFiles') || [];
+  const exportSub = [
+    { label: '导出 PDF', click: () => send('export:pdf') },
+    { label: '导出 HTML', click: () => send('export:html') },
+    { label: '导出 PNG', click: () => send('export:png') },
+  ];
+  if (pandocVersion) {
+    exportSub.push({ type: 'separator' }, { label: 'Pandoc 导出 (docx/odt/epub/latex/rst)', click: () => send('export:pandoc') });
+  }
+  const template = [
+    {
+      label: '文件',
+      submenu: [
+        { label: '新建', accelerator: 'CmdOrCtrl+N', click: () => send('file:new') },
+        { label: '新窗口', accelerator: 'CmdOrCtrl+Shift+N', click: () => createWindow() },
+        { label: '打开…', accelerator: 'CmdOrCtrl+O', click: () => send('file:open') },
+        { type: 'separator' },
+        { label: '保存', accelerator: 'CmdOrCtrl+S', click: () => send('file:save') },
+        { label: '另存为…', accelerator: 'CmdOrCtrl+Shift+S', click: () => send('file:saveAs') },
+        {
+          label: '最近文件',
+          submenu: recent.length
+            ? recent.map(p => ({ label: p, click: () => send('file:openPath', p) }))
+            : [{ label: '（空）', enabled: false }]
+        },
+        { type: 'separator' },
+        { label: '导入 (Pandoc)…', enabled: !!pandocVersion, click: () => send('import:pandoc') },
+        { label: '导出', submenu: exportSub },
+        { type: 'separator' },
+        { label: '查找…', accelerator: 'CmdOrCtrl+F', click: () => send('edit:find') },
+        { label: '打印…', accelerator: 'CmdOrCtrl+P', click: () => { const w = win; w && w.webContents.print(); } },
+        { type: 'separator' },
+        { role: 'quit', label: '退出' }
+      ]
+    },
+    {
+      label: '视图',
+      submenu: [
+        { label: '所见即所得', click: () => send('view:mode', 'wysiwyg') },
+        { label: '即时渲染', click: () => send('view:mode', 'ir') },
+        { label: '分屏预览', click: () => send('view:mode', 'sv') },
+        { type: 'separator' },
+        { label: '文件侧栏', type: 'checkbox', checked: setting.get('sidebar') !== false, click: (i) => send('view:sidebar', i.checked) },
+        { label: '深色主题', type: 'checkbox', checked: setting.get('theme') === 'dark', click: (i) => send('view:theme', i.checked ? 'dark' : 'classic') },
+        { type: 'separator' },
+        { role: 'reload', label: '重新加载' },
+        { role: 'toggleDevTools', label: '开发者工具' },
+        { type: 'separator' },
+        { role: 'resetZoom', label: '实际大小' },
+        { role: 'zoomIn', label: '放大' },
+        { role: 'zoomOut', label: '缩小' }
+      ]
+    },
+    {
+      label: '关于',
+      submenu: [
+        { label: 'Blue Editor v' + app.getVersion(), enabled: false }
+      ]
+    }
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+function addRecent(p) {
+  let r = setting.get('recentFiles') || [];
+  r = [p, ...r.filter(x => x !== p)].slice(0, 10);
+  setting.put('recentFiles', r);
+  buildMenu();
+}
+
+// ---------- pandoc ----------
+function runPandoc(args, input) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('pandoc', args, { windowsHide: true });
+    const out = [], err = [];
+    proc.stdout.on('data', d => out.push(d));
+    proc.stderr.on('data', d => err.push(d));
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code === 0) resolve(Buffer.concat(out));
+      else reject(new Error(Buffer.concat(err).toString('utf8') || 'pandoc exit ' + code));
+    });
+    if (input !== undefined) {
+      proc.stdin.write(input);
+      proc.stdin.end();
+    }
+  });
+}
+
+function versionGte(v, min) {
+  const a = v.split('.').map(Number), b = min.split('.').map(Number);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] || 0, y = b[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return true;
+}
+
+async function detectPandoc() {
+  try {
+    const out = await runPandoc(['--version']);
+    const m = String(out).match(/pandoc(?:\.exe)?\s+([\d.]+)/i);
+    if (m && versionGte(m[1], '1.16')) {
+      pandocVersion = m[1];
+    }
+  } catch (e) {
+    pandocVersion = null;
+  }
+  buildMenu();
+}
+
+const PANDOC_IMPORT_FILTERS = [
+  { name: 'All Supported Formats', extensions: ['docx', 'latex', 'tex', 'ltx', 'rst', 'rest', 'org', 'wiki', 'dokuwiki', 'mediawiki', 'textile', 'opml', 'epub'] },
+  { name: 'MS Word', extensions: ['docx'] },
+  { name: 'TeX/LaTeX', extensions: ['latex', 'tex', 'ltx'] },
+  { name: 'reStructuredText', extensions: ['rst', 'rest'] },
+  { name: 'org-mode', extensions: ['org'] },
+  { name: 'Wiki', extensions: ['wiki', 'dokuwiki', 'mediawiki'] },
+  { name: 'Epub', extensions: ['epub'] },
+  { name: 'Textile', extensions: ['textile'] },
+  { name: 'OPML', extensions: ['opml'] }
+];
+
+// ---------- IPC ----------
+ipcMain.handle('setting.get', (e, k) => setting.get(k));
+ipcMain.handle('setting.put', (e, k, v) => setting.put(k, v));
+ipcMain.handle('recent.get', () => setting.get('recentFiles') || []);
+
+// 侧栏文件树：列目录（子目录 + md 文件）
+ipcMain.handle('dir.list', (e, dir) => {
+  try {
+    const dirs = [], files = [];
+    fs.readdirSync(dir, { withFileTypes: true }).forEach(ent => {
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory() && !ent.name.startsWith('.')) {
+        dirs.push({ name: ent.name, path: full });
+      } else if (ent.isFile() && MD_EXT.includes(path.extname(ent.name).toLowerCase())) {
+        files.push({ name: ent.name, path: full });
+      }
+    });
+    const byName = (a, b) => a.name.localeCompare(b.name);
+    return { path: dir, dirs: dirs.sort(byName), files: files.sort(byName) };
+  } catch (err) {
+    return { path: dir, error: err.message, dirs: [], files: [] };
+  }
+});
+
+// 目录监听：按窗口各持一个（外部增删改 → 推 dir:changed，防抖合并）
+const dirWatchers = new Map(); // winId → {watcher, win, dir}
+let dirWatchTimer = null;
+ipcMain.handle('dir.watch', (e, dir) => {
+  const w = winOf(e);
+  const prev = dirWatchers.get(w.id);
+  if (prev && prev.dir === dir) return; // 同一个根 → 不动
+  if (prev) { try { prev.watcher.close(); } catch (err) {} }
+  if (!dir) { dirWatchers.delete(w.id); return; }
+  try {
+    const watcher = fs.watch(dir, { recursive: true }, () => {
+      clearTimeout(dirWatchTimer);
+      dirWatchTimer = setTimeout(() => {
+        const rec = dirWatchers.get(w.id);
+        rec && !rec.win.isDestroyed() && rec.win.webContents.send('dir:changed');
+      }, 300);
+    });
+    dirWatchers.set(w.id, { watcher, win: w, dir });
+  } catch (err) {
+    dirWatchers.delete(w.id);
+  }
+});
+
+// 当前文件外部修改监听：按窗口各持一个（轮询；自己保存按 mtime+窗口抑制）
+const fileWatchers = new Map(); // winId → {path, win}
+let lastSavedMtime = 0;
+let lastSavedWinId = 0;
+ipcMain.handle('file.watch', (e, p) => {
+  const w = winOf(e);
+  const prev = fileWatchers.get(w.id);
+  if (prev && prev.path === p) return;
+  if (prev) { try { fs.unwatchFile(prev.path); } catch (err) {} fileWatchers.delete(w.id); }
+  if (!p) return;
+  fileWatchers.set(w.id, { path: p, win: w });
+  try {
+    fs.watchFile(p, { interval: 800 }, (cur) => {
+      // 本窗口自己刚写入的不算外部修改
+      if (cur.mtimeMs === lastSavedMtime && w.id === lastSavedWinId) return;
+      w && !w.isDestroyed() && w.webContents.send('file:changed', p);
+    });
+  } catch (err) {}
+});
+
+// 侧栏文件操作：新建/重命名/删除（进回收站）/移动
+ipcMain.handle('fs.createFile', (e, dir, name) => {
+  try {
+    const p = path.join(dir, name);
+    if (fs.existsSync(p)) return { ok: false, error: '已存在同名项' };
+    fs.writeFileSync(p, '', 'utf8');
+    return { ok: true, path: p };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('fs.createDir', (e, dir, name) => {
+  try {
+    const p = path.join(dir, name);
+    if (fs.existsSync(p)) return { ok: false, error: '已存在同名项' };
+    fs.mkdirSync(p);
+    return { ok: true, path: p };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('fs.rename', (e, from, newName) => {
+  try {
+    const to = path.join(path.dirname(from), newName);
+    if (fs.existsSync(to)) return { ok: false, error: '已存在同名项' };
+    fs.renameSync(from, to);
+    // md 重命名时同步重命名 assets 目录
+    if (MD_EXT.includes(path.extname(from).toLowerCase())) {
+      const assets = assetsDirOf(from);
+      if (fs.existsSync(assets)) {
+        try { fs.renameSync(assets, assetsDirOf(to)); } catch (e2) {}
+      }
+    }
+    return { ok: true, newPath: to };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('fs.trash', async (e, p) => {
+  try {
+    await shell.trashItem(p);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+ipcMain.handle('file.move', (e, src, destDir) => {
+  try {
+    const normSrc = path.normalize(src), normDest = path.normalize(destDir);
+    if (normSrc === normDest) return { ok: false, error: '目标即自身' };
+    // 不能把目录移到自己里面
+    if (normDest.toLowerCase().startsWith(normSrc.toLowerCase() + path.sep)) {
+      return { ok: false, error: '不能移动到自身子目录' };
+    }
+    const newPath = path.join(normDest, path.basename(normSrc));
+    if (fs.existsSync(newPath)) return { ok: false, error: '目标位置已存在同名项' };
+    fs.renameSync(normSrc, newPath);
+    // md 文件随迁 <stem>.assets/ 图片目录
+    if (MD_EXT.includes(path.extname(normSrc).toLowerCase())) {
+      const assets = assetsDirOf(normSrc);
+      if (fs.existsSync(assets)) {
+        try { fs.renameSync(assets, assetsDirOf(newPath)); } catch (e) {}
+      }
+    }
+    return { ok: true, newPath };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('file.openDialog', async (e) => {
+  const r = await dialog.showOpenDialog(winOf(e), {
+    properties: ['openFile'],
+    filters: [
+      { name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'txt'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+  if (r.canceled || !r.filePaths[0]) return null;
+  return readFileResult(r.filePaths[0]);
+});
+
+ipcMain.handle('file.read', (e, p) => readFileResult(p));
+
+function readFileResult(p) {
+  try {
+    const r = { path: p, content: fs.readFileSync(p, 'utf8'), name: path.basename(p) };
+    addRecent(p);
+    return r;
+  } catch (e) {
+    return { path: p, error: e.message };
+  }
+}
+
+// 粘贴/拖入图片 → 落到 <文档名>.assets/，返回相对路径
+ipcMain.handle('asset.save', (e, docPath, fileName, bytes) => {
+  try {
+    const dir = docPath.replace(/\.[^.\\]+$/, '') + '.assets';
+    fs.mkdirSync(dir, { recursive: true });
+    const safe = String(fileName || 'img').replace(/[^\w.\-一-龥]/g, '_');
+    const dest = path.join(dir, Date.now() + '-' + safe);
+    fs.writeFileSync(dest, Buffer.from(bytes));
+    return path.basename(dir) + '/' + path.basename(dest);
+  } catch (err) {
+    throw new Error('asset.save failed: ' + err.message);
+  }
+});
+
+function rememberMtime(p, winId) {
+  try {
+    lastSavedMtime = fs.statSync(p).mtimeMs;
+    lastSavedWinId = winId;
+  } catch (e) {}
+}
+
+ipcMain.handle('file.save', (e, p, content) => {
+  try {
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content, 'utf8');
+    rememberMtime(p, winOf(e).id);
+    addRecent(p);
+    return { ok: true, path: p };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('file.saveAs', async (e, content, defaultPath) => {
+  const r = await dialog.showSaveDialog(winOf(e), {
+    defaultPath: defaultPath || 'untitled.md',
+    filters: [{ name: 'Markdown', extensions: ['md'] }]
+  });
+  if (r.canceled || !r.filePath) return null;
+  try {
+    fs.writeFileSync(r.filePath, content, 'utf8');
+    rememberMtime(r.filePath, winOf(e).id);
+    addRecent(r.filePath);
+    return { ok: true, path: r.filePath };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// ---------- 草稿备份（按文档路径 hash 存档；未命名文档按窗口 id）----------
+const draftName = (p, winId) =>
+  (p ? 'p-' + crypto.createHash('sha1').update(p).digest('hex') : 'u-' + winId) + '.json';
+const draftFile = (p, winId) => path.join(userData(), 'drafts', draftName(p, winId));
+
+ipcMain.handle('draft.save', (e, payload) => {
+  try {
+    const f = draftFile(payload.path, winOf(e).id);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f, JSON.stringify({ ...payload, savedAt: Date.now() }));
+    return true;
+  } catch (err) {
+    return false;
+  }
+});
+
+ipcMain.handle('draft.clear', (e, p) => {
+  const wId = winOf(e).id;
+  [draftFile(p, wId), draftFile(null, wId)].forEach(f => {
+    try { fs.unlinkSync(f); } catch (err) {}
+  });
+});
+
+// 启动时把 drafts/ 里每个草稿恢复到独立窗口（多文档未保存不串档）
+function restoreDrafts() {
+  const dir = path.join(userData(), 'drafts');
+  let drafts = [];
+  try {
+    drafts = fs.readdirSync(dir).filter(f => f.endsWith('.json'))
+      .map(f => {
+        try { return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); }
+        catch (e) { return null; }
+      })
+      .filter(d => d && d.content)
+      .sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0));
+  } catch (e) {}
+  drafts.forEach(d => {
+    const w = createWindow();
+    const go = () => w.webContents.send('menu:action', { action: 'draft:restore', payload: d });
+    if (w.webContents.isLoading()) w.webContents.once('did-finish-load', go);
+    else go();
+  });
+  return drafts.length;
+}
+
+// ---------- 导出 ----------
+ipcMain.handle('export.pdf', async (e, defaultName) => {
+  const w = winOf(e);
+  const r = await dialog.showSaveDialog(w, {
+    defaultPath: defaultName || 'untitled.pdf',
+    filters: [{ name: 'PDF', extensions: ['pdf'] }]
+  });
+  if (r.canceled || !r.filePath) return null;
+  const data = await w.webContents.printToPDF({ printBackground: true });
+  fs.writeFileSync(r.filePath, data);
+  return { ok: true, path: r.filePath };
+});
+
+ipcMain.handle('export.html', async (e, html, defaultName) => {
+  const r = await dialog.showSaveDialog(winOf(e), {
+    defaultPath: defaultName || 'untitled.html',
+    filters: [{ name: 'HTML', extensions: ['html'] }]
+  });
+  if (r.canceled || !r.filePath) return null;
+  fs.writeFileSync(r.filePath, html, 'utf8');
+  return { ok: true, path: r.filePath };
+});
+
+ipcMain.handle('export.png', async (e, clip, defaultName) => {
+  const w = winOf(e);
+  const r = await dialog.showSaveDialog(w, {
+    defaultPath: defaultName || 'untitled.png',
+    filters: [{ name: 'PNG', extensions: ['png'] }]
+  });
+  if (r.canceled || !r.filePath) return null;
+  // 用 CDP captureBeyondViewport 截全文（clip = 页面坐标系的编辑区完整高度）
+  const dbg = w.webContents.debugger;
+  try {
+    try { dbg.attach('1.3'); } catch (err) {}
+    const shot = await dbg.sendCommand('Page.captureScreenshot', {
+      format: 'png',
+      captureBeyondViewport: true,
+      clip: { x: clip.x, y: clip.y, width: clip.width, height: clip.height, scale: 1 }
+    });
+    fs.writeFileSync(r.filePath, Buffer.from(shot.data, 'base64'));
+  } finally {
+    try { dbg.detach(); } catch (err) {}
+  }
+  return { ok: true, path: r.filePath };
+});
+
+// HTML 导出用的样式包：内联 Vditor 排版 + KaTeX + 代码高亮 css，
+// css 里的 url(font/…) 全部读成 data:base64（asar 内也能工作）
+ipcMain.handle('export.cssBundle', () => {
+  const base = path.join(__dirname, '..', 'node_modules', 'vditor', 'dist');
+  const files = [
+    'index.css',
+    'css/content-theme/light.css',
+    'js/katex/katex.min.css',
+    'js/highlight.js/styles/github.min.css'
+  ];
+  let css = '';
+  for (const rel of files) {
+    const fp = path.join(base, rel);
+    try {
+      let c = fs.readFileSync(fp, 'utf8');
+      const dir = path.dirname(fp);
+      c = c.replace(/url\(["']?(?!data:|https?:|file:)([^"')]+)["']?\)/g, (m, u) => {
+        try {
+          const p = path.resolve(dir, u);
+          const ext = path.extname(p).slice(1) || 'woff2';
+          return 'url(data:font/' + ext + ';base64,' + fs.readFileSync(p).toString('base64') + ')';
+        } catch (e) { return m; }
+      });
+      css += '\n' + c;
+    } catch (e) { /* 文件缺了就跳过 */ }
+  }
+  return css;
+});
+
+// ---------- 查找 ----------
+ipcMain.handle('find', (e, text, forward, findNext) => {
+  const w = winOf(e);
+  if (!text) {
+    w.webContents.stopFindInPage('clearSelection');
+    return -1;
+  }
+  return w.webContents.findInPage(text, { forward: forward !== false, findNext: !!findNext });
+});
+
+ipcMain.handle('find.stop', (e) => {
+  winOf(e).webContents.stopFindInPage('clearSelection');
+});
+
+// ---------- 关闭流程 ----------
+ipcMain.handle('app.confirmClose', async (e) => {
+  const w = winOf(e);
+  const r = await dialog.showMessageBox(w, {
+    type: 'warning',
+    message: '文档有未保存的修改',
+    detail: '关闭前要保存吗？自动草稿仍会保留。',
+    buttons: ['保存并关闭', '不保存', '取消'],
+    defaultId: 0,
+    cancelId: 2
+  });
+  return r.response;
+});
+
+ipcMain.handle('app.closeNow', (e) => {
+  const w = winOf(e);
+  if (w) { w._allowClose = true; w.close(); }
+});
+
+// ---------- pandoc ----------
+ipcMain.handle('pandoc.isValid', () => pandocVersion);
+
+ipcMain.handle('pandoc.import', async (e) => {
+  const r = await dialog.showOpenDialog(winOf(e), {
+    properties: ['openFile'],
+    filters: PANDOC_IMPORT_FILTERS
+  });
+  if (r.canceled || !r.filePaths[0]) return null;
+  const src = r.filePaths[0];
+  try {
+    const out = await runPandoc([src, '-f', path.extname(src).slice(1).replace(/^(ltx|tex)$/, 'latex').replace(/^(rest)$/, 'rst').replace(/^(wiki|dokuwiki|mediawiki)$/, 'mediawiki'), '-t', 'gfm']);
+    return { ok: true, content: out.toString('utf8'), fromPath: src };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+const PANDOC_EXPORT_FILTERS = [
+  { name: 'Word docx', extensions: ['docx'] },
+  { name: 'OpenDocument odt', extensions: ['odt'] },
+  { name: 'EPUB', extensions: ['epub'] },
+  { name: 'LaTeX', extensions: ['latex', 'tex'] },
+  { name: 'reStructuredText', extensions: ['rst'] }
+];
+
+ipcMain.handle('pandoc.export', async (e, content, defaultName) => {
+  const r = await dialog.showSaveDialog(winOf(e), {
+    defaultPath: defaultName || 'untitled.docx',
+    filters: PANDOC_EXPORT_FILTERS
+  });
+  if (r.canceled || !r.filePath) return null;
+  const dst = r.filePath;
+  const fmt = { '.docx': 'docx', '.odt': 'odt', '.epub': 'epub', '.latex': 'latex', '.tex': 'latex', '.rst': 'rst' }[path.extname(dst).toLowerCase()];
+  if (!fmt) return { ok: false, error: '不支持的导出格式' };
+  const tmp = path.join(app.getPath('temp'), 'blue-editor-export-' + Date.now() + '.md');
+  try {
+    fs.writeFileSync(tmp, content, 'utf8');
+    await runPandoc([tmp, '-f', 'gfm', '-t', fmt, '-o', dst]);
+    return { ok: true, path: dst };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  } finally {
+    try { fs.unlinkSync(tmp); } catch (e) {}
+  }
+});
+
+// ---------- 生命周期 ----------
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (e, argv, cwd) => {
+    const p = getFilePath(argv, cwd);
+    if (p && isOpenable(p)) {
+      // 新文件开新窗
+      deliverTo(createWindow(), argv, cwd);
+    } else {
+      const w = win || createWindow();
+      if (w.isMinimized()) w.restore();
+      w.focus();
+      if (p) dialog.showErrorBox('Blue Editor', '不支持的文件类型：' + p);
+    }
+  });
+
+  app.setName('Blue Editor');
+  app.whenReady().then(async () => {
+    app.setAppUserModelId('blue.editor');
+    detectPandoc();
+    const w = createWindow();
+    deliverTo(w, process.argv, process.cwd());
+    restoreDrafts();
+  });
+}
+
+app.on('window-all-closed', () => app.quit());

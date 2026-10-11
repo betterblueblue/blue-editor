@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file: https: http:; font-src 'self' data:; script-src 'self' 'sha256-qR4U4J3Ne5n0m3uNzGMB/tZ3TWJUf89OlxdXqjqALDM='; object-src 'none'; frame-src 'none'">
+  <title>Blue Editor</title>
+  <link rel="stylesheet" href="../../node_modules/vditor/dist/index.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="conflictbar" class="hidden">
+    <span>文件已被外部修改</span>
+    <button id="cf-reload">重载</button>
+    <button id="cf-ignore">忽略</button>
+  </div>
+  <div id="findbar" class="hidden">
+    <input id="find-input" placeholder="查找" type="text">
+    <span id="find-count"></span>
+    <button id="find-prev" title="上一个">↑</button>
+    <button id="find-next" title="下一个">↓</button>
+    <input id="replace-input" placeholder="替换为" type="text">
+    <button id="replace-all" title="全部替换">全部替换</button>
+    <button id="find-close" title="关闭">×</button>
+  </div>
+  <div id="app">
+    <aside id="sidebar">
+      <div id="sidebar-tabs">
+        <button data-tab="files" class="tab active">文件</button>
+        <button data-tab="outline" class="tab">大纲</button>
+      </div>
+      <div id="sidebar-files" class="sidebar-pane">
+        <div id="dir-current" title=""></div>
+        <ul id="dir-list"></ul>
+      </div>
+      <div id="sidebar-outline" class="sidebar-pane hidden">
+        <ul id="outline-list"></ul>
+      </div>
+      <div id="ctxmenu" class="hidden"></div>
+      <div id="inputdlg" class="hidden">
+        <div id="inputdlg-box">
+          <input id="inputdlg-input" type="text">
+          <div class="dlg-btns">
+            <button id="inputdlg-ok">确定</button>
+            <button id="inputdlg-cancel">取消</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+    <div id="vditor"></div>
+  </div>
+  <script src="../../node_modules/vditor/dist/index.min.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

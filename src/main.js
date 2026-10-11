@@ -388,7 +388,7 @@ ipcMain.handle('fs.rename', (e, from, newName) => {
 
 ipcMain.handle('fs.trash', async (e, p) => {
   try {
-    await shell.trashItem(p);
+    await shell.trashItem(path.normalize(p));
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -692,6 +692,9 @@ ipcMain.handle('pandoc.export', async (e, content, defaultName) => {
 });
 
 // ---------- 生命周期 ----------
+// setName 必须在 ready 前调用：userData 路径由 app name 决定，
+// 迟了会落到 %APPDATA%/<package name>（'blue-editor'）而不是 'Blue Editor'
+app.setName('Blue Editor');
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
@@ -709,7 +712,6 @@ if (!gotLock) {
     }
   });
 
-  app.setName('Blue Editor');
   app.whenReady().then(async () => {
     app.setAppUserModelId('blue.editor');
     detectPandoc();

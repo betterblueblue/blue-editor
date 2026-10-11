@@ -198,6 +198,7 @@ function buildMenu() {
         { label: '分屏预览', click: () => send('view:mode', 'sv') },
         { type: 'separator' },
         { label: '文件侧栏', type: 'checkbox', checked: setting.get('sidebar') !== false, click: (i) => send('view:sidebar', i.checked) },
+        { label: '工具栏', type: 'checkbox', checked: setting.get('toolbar') === true, click: (i) => send('view:toolbar', i.checked) },
         { label: '深色主题', type: 'checkbox', checked: setting.get('theme') === 'dark', click: (i) => send('view:theme', i.checked ? 'dark' : 'classic') },
         { type: 'separator' },
         { role: 'reload', label: '重新加载' },

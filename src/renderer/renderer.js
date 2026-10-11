@@ -677,6 +677,11 @@ bridge.onMenuAction(async (action, payload) => {
       break;
     }
     case 'view:sidebar': await setSidebar(payload); break;
+    case 'view:toolbar': {
+      document.body.classList.toggle('no-toolbar', !payload);
+      await bridge.invoke('setting.put', 'toolbar', !!payload);
+      break;
+    }
     case 'edit:find': showFind(); break;
     case 'draft:restore': {
       // 启动时主进程推来的未保存草稿（按文档各一份）
@@ -742,6 +747,10 @@ async function buildHTMLDoc() {
   document.body.classList.toggle('dark', theme === 'dark');
   if ((await bridge.invoke('setting.get', 'sidebar')) === false) {
     $sidebar().classList.add('hidden');
+  }
+  // 工具栏默认隐藏（视图菜单勾选显示）
+  if ((await bridge.invoke('setting.get', 'toolbar')) !== true) {
+    document.body.classList.add('no-toolbar');
   }
   document.querySelectorAll('#sidebar-tabs .tab').forEach(t => {
     t.onclick = () => switchTab(t.dataset.tab);

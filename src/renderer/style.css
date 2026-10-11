@@ -406,6 +406,26 @@ body.dark #inputdlg-box button:first-child {
   color: #fff;
 }
 
+/* ---------- 界面精简 ---------- */
+/* 工具栏：默认隐藏（视图菜单可开），全屏时强制显示 */
+body.no-toolbar #vditor:not(.vditor--fullscreen) .vditor-toolbar {
+  display: none;
+}
+
+/* 标题/代码块左侧的 H1-H6、</>、ToC 标记：所见即所得下永久隐藏 */
+.vditor-wysiwyg > h1:before, .vditor-wysiwyg .vditor-reset > h1:before,
+.vditor-wysiwyg > h2:before, .vditor-wysiwyg .vditor-reset > h2:before,
+.vditor-wysiwyg > h3:before, .vditor-wysiwyg .vditor-reset > h3:before,
+.vditor-wysiwyg > h4:before, .vditor-wysiwyg .vditor-reset > h4:before,
+.vditor-wysiwyg > h5:before, .vditor-wysiwyg .vditor-reset > h5:before,
+.vditor-wysiwyg > h6:before, .vditor-wysiwyg .vditor-reset > h6:before,
+.vditor-wysiwyg div.vditor-wysiwyg__block:before,
+.vditor-wysiwyg div[data-type="link-ref-defs-block"]:before,
+.vditor-wysiwyg div[data-type="footnotes-block"]:before,
+.vditor-wysiwyg .vditor-toc:before {
+  display: none;
+}
+
 /* PNG 全文导出：截图瞬间展开内部滚动容器 */
 body.capture #vditor .vditor-content {
   overflow: visible !important;

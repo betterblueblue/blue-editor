@@ -465,7 +465,11 @@ function readFileResult(p) {
     p = path.resolve(p); // 规范成绝对路径，渲染层拿到的 path 才能用于监听/对比
     const buf = fs.readFileSync(p);
     let content, encoding = 'utf8';
-    if (buf.length >= 3 && buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) {
+    if (buf.length >= 2 && buf[0] === 0xFF && buf[1] === 0xFE) {
+      content = new TextDecoder('utf-16le').decode(buf); encoding = 'utf-16le'; // BOM 由解码器剥离
+    } else if (buf.length >= 2 && buf[0] === 0xFE && buf[1] === 0xFF) {
+      content = new TextDecoder('utf-16be').decode(buf); encoding = 'utf-16be';
+    } else if (buf.length >= 3 && buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) {
       content = new TextDecoder('utf-8').decode(buf.subarray(3)); // 去 BOM
     } else {
       try {
@@ -532,6 +536,33 @@ ipcMain.handle('file.save', (e, p, content) => {
   }
 });
 
+// pandoc 导入等留下的 file:/// 图片引用 → 搬进 <新文档>.assets/，改回相对路径
+async function relocateFileImages(dstPath, md) {
+  const re = /file:\/\/\/([^")\s]+)/g;
+  const map = new Map(); let i = 0;
+  const jobs = [];
+  md.replace(re, (m, raw) => {
+    const p = decodeURIComponent(raw);
+    if (map.has(p)) return;
+    map.set(p, null);
+    const n = ++i;
+    jobs.push((async () => {
+      try {
+        const buf = fs.readFileSync(p);
+        const dir = dstPath.replace(/\.[^.\\]+$/, '') + '.assets';
+        fs.mkdirSync(dir, { recursive: true });
+        const safe = path.basename(p).replace(/[^\w.\-一-龥]/g, '_');
+        const dest = path.join(dir, Date.now() + '-' + n + '-' + safe);
+        fs.writeFileSync(dest, buf);
+        map.set(p, path.basename(dir) + '/' + path.basename(dest));
+      } catch (e) { /* 读不到就保留原 file:// 引用 */ }
+    })());
+    return m;
+  });
+  await Promise.all(jobs);
+  return md.replace(re, (m, raw) => map.get(decodeURIComponent(raw)) || m);
+}
+
 ipcMain.handle('file.saveAs', async (e, content, defaultPath) => {
   const r = await dialog.showSaveDialog(winOf(e), {
     defaultPath: defaultPath || 'untitled.md',
@@ -539,6 +570,7 @@ ipcMain.handle('file.saveAs', async (e, content, defaultPath) => {
   });
   if (r.canceled || !r.filePath) return null;
   try {
+    content = await relocateFileImages(r.filePath, content);
     fs.writeFileSync(r.filePath, content, 'utf8');
     rememberMtime(r.filePath, winOf(e).id);
     addRecent(r.filePath);
@@ -617,13 +649,11 @@ ipcMain.handle('export.pdf', async (e, defaultName) => {
   return { ok: true, path: r.filePath };
 });
 
-ipcMain.handle('export.html', async (e, html, defaultName, testPath) => {
-  const r = testPath
-    ? { filePath: testPath } // 自动化冒烟用：跳过保存对话框
-    : await dialog.showSaveDialog(winOf(e), {
-        defaultPath: defaultName || 'untitled.html',
-        filters: [{ name: 'HTML', extensions: ['html'] }]
-      });
+ipcMain.handle('export.html', async (e, html, defaultName) => {
+  const r = await dialog.showSaveDialog(winOf(e), {
+    defaultPath: defaultName || 'untitled.html',
+    filters: [{ name: 'HTML', extensions: ['html'] }]
+  });
   if (r.canceled || !r.filePath) return null;
   fs.writeFileSync(r.filePath, html, 'utf8');
   return { ok: true, path: r.filePath };
@@ -632,12 +662,10 @@ ipcMain.handle('export.html', async (e, html, defaultName, testPath) => {
 ipcMain.handle('export.png', async (e, clip, defaultName) => {
   const w = winOf(e);
   if (!w) return null;
-  const r = clip.testPath
-    ? { filePath: clip.testPath } // 自动化冒烟用：跳过保存对话框
-    : await dialog.showSaveDialog(w, {
-        defaultPath: defaultName || 'untitled.png',
-        filters: [{ name: 'PNG', extensions: ['png'] }]
-      });
+  const r = await dialog.showSaveDialog(w, {
+    defaultPath: defaultName || 'untitled.png',
+    filters: [{ name: 'PNG', extensions: ['png'] }]
+  });
   if (r.canceled || !r.filePath) return null;
   const [ow, oh] = w.getSize();
   try {
@@ -735,8 +763,21 @@ ipcMain.handle('pandoc.import', async (e) => {
   if (r.canceled || !r.filePaths[0]) return null;
   const src = r.filePaths[0];
   try {
-    const out = await runPandoc([src, '-f', path.extname(src).slice(1).replace(/^(ltx|tex)$/, 'latex').replace(/^(rest)$/, 'rst').replace(/^(wiki|dokuwiki|mediawiki)$/, 'mediawiki'), '-t', 'gfm']);
-    return { ok: true, content: out.toString('utf8'), fromPath: src };
+    // 内嵌图片解到临时目录；引用改 file:// 绝对路径（编辑器可显示，
+    // 另存为时 relocateFileImages 会把它们搬进 .assets 改回相对路径）
+    // --extract-media 的引用路径 = 传入的参数原样（Windows 下会带上反斜杠绝对路径），
+    // 所以传相对目录名 + cwd=其父目录，引用才是干净的 <目录名>/media/x.png
+    const mediaDir = path.join(app.getPath('temp'), 'blue-import-' + Date.now());
+    const mediaBase = path.basename(mediaDir);
+    const out = await runPandoc([
+      src, '-f', path.extname(src).slice(1).replace(/^(ltx|tex)$/, 'latex').replace(/^(rest)$/, 'rst').replace(/^(wiki|dokuwiki|mediawiki)$/, 'mediawiki'),
+      '-t', 'gfm', '--extract-media', mediaBase
+    ], undefined, { cwd: path.dirname(mediaDir) });
+    // <mediaBase>/media/x.png → file:// 绝对路径（编辑器可显示，另存为时搬进 .assets）
+    const re = new RegExp('(src="|!\\[[^\\]]*\\]\\()\\s*' + mediaBase + '\\/', 'g');
+    const content = out.toString('utf8').replace(re, (m, pre) =>
+      pre + 'file:///' + mediaDir.replace(/\\/g, '/') + '/');
+    return { ok: true, content, fromPath: src };
   } catch (err) {
     return { ok: false, error: err.message };
   }
@@ -750,16 +791,14 @@ const PANDOC_EXPORT_FILTERS = [
   { name: 'reStructuredText', extensions: ['rst'] }
 ];
 
-ipcMain.handle('pandoc.export', async (e, content, defaultName, forceExt, docPath, testPath) => {
+ipcMain.handle('pandoc.export', async (e, content, defaultName, forceExt, docPath) => {
   const filters = forceExt
     ? PANDOC_EXPORT_FILTERS.filter(f => f.extensions.includes(forceExt))
     : PANDOC_EXPORT_FILTERS;
-  const r = testPath
-    ? { filePath: testPath } // 自动化冒烟用：跳过保存对话框
-    : await dialog.showSaveDialog(winOf(e), {
-        defaultPath: defaultName || 'untitled.docx',
-        filters: filters.length ? filters : PANDOC_EXPORT_FILTERS
-      });
+  const r = await dialog.showSaveDialog(winOf(e), {
+    defaultPath: defaultName || 'untitled.docx',
+    filters: filters.length ? filters : PANDOC_EXPORT_FILTERS
+  });
   if (r.canceled || !r.filePath) return null;
   const dst = r.filePath;
   const fmt = { '.docx': 'docx', '.odt': 'odt', '.epub': 'epub', '.latex': 'latex', '.tex': 'latex', '.rst': 'rst' }[path.extname(dst).toLowerCase()];
@@ -792,7 +831,8 @@ function checkUpdates(manual) {
     return;
   }
   manualUpdateCheck = !!manual;
-  autoUpdater.checkForUpdates();
+  // 失败走 error 事件提示；这里吞掉 rejection 避免 unhandled rejection
+  autoUpdater.checkForUpdates().catch(() => {});
 }
 
 function initAutoUpdater() {
@@ -805,14 +845,20 @@ function initAutoUpdater() {
   }
   autoUpdater.autoDownload = false; // 110MB 不能偷偷下——先问用户
   autoUpdater.on('update-available', (info) => {
+    const manual = manualUpdateCheck;
     manualUpdateCheck = false;
+    // 跳过列表里的版本：手动检查仍提示，启动检查静默
+    if (!manual && setting.get('skipUpdateVersion') === info.version) return;
     msgBox(null, {
       type: 'info',
       message: `发现新版本 v${info.version}`,
       detail: '是否下载并安装？（约 110MB，增量更新会更小）',
-      buttons: ['下载并安装', '稍后'],
-      defaultId: 0, cancelId: 1
-    }).then(r => { if (r.response === 0) autoUpdater.downloadUpdate(); });
+      buttons: ['下载并安装', '跳过此版本', '稍后'],
+      defaultId: 0, cancelId: 2
+    }).then(r => {
+      if (r.response === 0) autoUpdater.downloadUpdate();
+      else if (r.response === 1) setting.put('skipUpdateVersion', info.version);
+    });
   });
   autoUpdater.on('update-not-available', () => {
     if (manualUpdateCheck) {
@@ -847,7 +893,7 @@ function initAutoUpdater() {
     }
   });
   if (setting.get('autoUpdate') !== false) {
-    autoUpdater.checkForUpdates();
+    autoUpdater.checkForUpdates().catch(() => {}); // 断网/代理失败静默
   }
 }
 

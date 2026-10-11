@@ -1,5 +1,5 @@
 // preload：contextBridge 白名单暴露——只允许下列通道，杜绝任意 IPC 调用
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const ALLOWED_INVOKE = new Set([
   'setting.get', 'setting.put', 'recent.get',
@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('bridge', {
     }
     return ipcRenderer.invoke(channel, ...args);
   },
+  // 拖文件进窗口时取真实路径（File.path 在新版 Electron 已移除）
+  pathOf: (f) => { try { return webUtils.getPathForFile(f); } catch (e) { return ''; } },
   onMenuAction: (cb) => ipcRenderer.on('menu:action', (e, m) => cb(m.action, m.payload)),
   onDirChanged: (cb) => ipcRenderer.on('dir:changed', () => cb()),
   onFindResult: (cb) => ipcRenderer.on('find:result', (e, r) => cb(r)),

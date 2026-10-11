@@ -149,7 +149,7 @@ function attachDropTarget(el, dirPath) {
       refreshTitle();
       setDocBase(currentPath);
       watchCurrentFile();
-      flushDraft(); // 以新路径重建草稿
+      if (dirty) flushDraft(); // 有修改才重建草稿——干净文档写了也只会复活成假脏窗
     }
   };
 }
@@ -179,7 +179,7 @@ function initSidebarDnD() {
       refreshTitle();
       setDocBase(currentPath);
       watchCurrentFile();
-      flushDraft();
+      if (dirty) flushDraft();
     }
   };
 }
@@ -764,7 +764,7 @@ bridge.onMenuAction(async (action, payload) => {
       const h = Math.min((content ? content.scrollHeight : box.height) + 20, 16383);
       const r = await bridge.invoke('export.png',
         { x: Math.round(box.left), y: 0,
-          width: Math.round(box.width), height: Math.round(h), testPath: null },
+          width: Math.round(box.width), height: Math.round(h) },
         exportName('.png'));
       if (r && r.ok === false) alert('PNG 导出失败: ' + r.error);
       break;
@@ -793,7 +793,7 @@ bridge.onMenuAction(async (action, payload) => {
     case 'edit:redo':
       try { vditor.focus(); vditor.vditor.undo.redo(vditor.vditor); } catch (e) {}
       break;
-    case 'app:flushDraft': flushDraft(); break; // 更新安装前主进程要求写盘
+    case 'app:flushDraft': if (dirty) flushDraft(); break; // 更新安装前主进程要求写盘
     case 'view:sidebar': await setSidebar(payload); break;
     case 'view:toolbar': {
       document.body.classList.toggle('no-toolbar', !payload);
@@ -886,6 +886,23 @@ async function buildHTMLDoc() {
   initFindbar();
   initFileWatch();
   initCtxMenu();
+  // 拖文件进窗口 → 打开（页面导航已被 will-navigate 拦死，这里给文件一个去处）
+  document.addEventListener('dragover', (e) => {
+    if (e.dataTransfer && e.dataTransfer.types.includes('Files')) e.preventDefault();
+  });
+  document.addEventListener('drop', async (e) => {
+    if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+    if (e.target.closest('#vditor')) return; // 编辑区内的投放归 Vditor（上传/插图）
+    e.preventDefault();
+    const p = bridge.pathOf(e.dataTransfer.files[0]);
+    if (!p) return;
+    const ext = (p.match(/\.[^.\\/]+$/) || [''])[0].toLowerCase();
+    if (!['.md', '.markdown', '.mdown', '.txt'].includes(ext)) return;
+    if (!(await guardDirty())) return;
+    const r = await bridge.invoke('file.read', p);
+    if (r && !r.error) loadDoc(r.path, r.content, r);
+    else alert('无法打开: ' + (r && r.error));
+  });
   // 未保存草稿由主进程启动时经 draft:restore 推送到本窗口
   vditor = createEditor('');
   refreshTitle();

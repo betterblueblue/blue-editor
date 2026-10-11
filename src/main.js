@@ -94,7 +94,7 @@ function createWindow() {
   });
   // 关窗前先问渲染层 dirty（未保存 → 三选一对话框）
   w.on('close', (e) => {
-    if (!w._allowClose) {
+    if (!w._allowClose && !app._installing) {
       e.preventDefault();
       w.webContents.send('menu:action', { action: 'app:closeRequest' });
     }
@@ -223,6 +223,7 @@ function buildMenu() {
       label: '关于',
       submenu: [
         { label: 'Blue Editor v' + app.getVersion(), enabled: false },
+        { label: '检查更新…', click: () => checkUpdates(true) },
         { label: '开源许可…', click: () => {
           // 打包后 licenses/ 在 resources/ 下；开发时用构建脚本生成的目录
           const dir = app.isPackaged
@@ -741,6 +742,67 @@ ipcMain.handle('pandoc.export', async (e, content, defaultName, forceExt) => {
   }
 });
 
+// ---------- 自动更新（仅安装版；绿色版/开发模式跳过）----------
+let autoUpdater = null;
+let manualUpdateCheck = false;
+
+function msgBox(w, opts) {
+  return dialog.showMessageBox(w || win || wins.values().next().value, opts);
+}
+
+function checkUpdates(manual) {
+  if (!autoUpdater) {
+    msgBox(null, { type: 'info', message: '当前版本不支持在线更新', detail: '绿色版请前往发布页下载新版。' });
+    return;
+  }
+  manualUpdateCheck = !!manual;
+  autoUpdater.checkForUpdates();
+}
+
+function initAutoUpdater() {
+  // PORTABLE_EXECUTABLE_DIR 只在绿色版运行时存在
+  if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_DIR) return;
+  try {
+    autoUpdater = require('electron-updater').autoUpdater;
+  } catch (e) {
+    return;
+  }
+  autoUpdater.autoDownload = true; // 静默后台下载，完事再弹窗
+  autoUpdater.on('update-available', (info) => {
+    if (manualUpdateCheck) {
+      msgBox(null, { type: 'info', message: `发现新版本 v${info.version}`, detail: '正在后台下载，完成后会提示重启安装。' });
+      manualUpdateCheck = false;
+    }
+  });
+  autoUpdater.on('update-not-available', () => {
+    if (manualUpdateCheck) {
+      msgBox(null, { type: 'info', message: '已是最新版本' });
+      manualUpdateCheck = false;
+    }
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    msgBox(null, {
+      type: 'info',
+      message: `新版本 v${info.version} 已下载完成`,
+      detail: '重启应用即可完成安装。',
+      buttons: ['立即重启安装', '稍后'],
+      defaultId: 0, cancelId: 1
+    }).then(r => {
+      if (r.response === 0) {
+        app._installing = true; // 跳过各窗口的未保存确认
+        autoUpdater.quitAndInstall();
+      }
+    });
+  });
+  autoUpdater.on('error', (err) => {
+    if (manualUpdateCheck) {
+      msgBox(null, { type: 'error', message: '检查更新失败', detail: String(err && err.message || err) });
+      manualUpdateCheck = false;
+    }
+  });
+  autoUpdater.checkForUpdates();
+}
+
 // ---------- 生命周期 ----------
 // setName 必须在 ready 前调用：userData 路径由 app name 决定，
 // 迟了会落到 %APPDATA%/<package name>（'blue-editor'）而不是 'Blue Editor'
@@ -764,6 +826,7 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     app.setAppUserModelId('blue.editor');
+    initAutoUpdater();
     detectPandoc();
     const w = createWindow();
     deliverTo(w, process.argv, process.cwd());

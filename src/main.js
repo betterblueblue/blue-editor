@@ -78,7 +78,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true // preload 只用 contextBridge+ipcRenderer，可以全开沙箱
     }
   });
   wins.add(w);
@@ -104,9 +104,9 @@ function createWindow() {
       w.webContents.send('find:result', { matches: r.matches, active: r.activeMatchOrdinal });
     }
   });
-  // 导航/新窗口拦截：站内 file:// 放行；http(s)/mailto 走系统浏览器；其余一律拒绝
+  // 导航/新窗口拦截：一切导航都拦（loadFile 不走这个事件，页面内跳转/拖拽文件
+  // 掉落都会触发）；http(s)/mailto 转系统浏览器，其余一律拒绝
   w.webContents.on('will-navigate', (e, url) => {
-    if (url.startsWith('file://')) return;
     e.preventDefault();
     if (/^https?:\/\//i.test(url) || url.startsWith('mailto:')) shell.openExternal(url);
   });

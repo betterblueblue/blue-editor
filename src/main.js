@@ -594,7 +594,13 @@ ipcMain.handle('export.png', async (e, clip, defaultName) => {
     w.setContentSize(clip.x + clip.width + 1, Math.min(clip.height, 16000));
     await new Promise(res => setTimeout(res, 900));
     const image = await w.webContents.capturePage();
-    const cropped = image.crop({ x: clip.x, y: 0, width: clip.width, height: Math.min(clip.height, 16000) });
+    // HiDPI：capturePage 返回物理像素图，crop 用 CSS 坐标会切少——按实际倍率换算
+    const sf = image.getSize().width / (clip.x + clip.width + 1);
+    const cropped = image.crop({
+      x: Math.round(clip.x * sf), y: 0,
+      width: Math.round(clip.width * sf),
+      height: Math.round(Math.min(clip.height, 16000) * sf)
+    });
     fs.writeFileSync(r.filePath, cropped.toPNG());
     return { ok: true, path: r.filePath };
   } catch (err) {

@@ -1,6 +1,6 @@
 {
   "name": "blue-editor",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Blue Editor — lightweight, offline-first WYSIWYG Markdown editor (Electron + Vditor)",
   "author": "blue",
   "license": "MIT",

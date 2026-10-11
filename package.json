@@ -27,6 +27,9 @@
       ],
       "icon": "build/icon.png"
     },
+    "portable": {
+      "artifactName": "${productName}-${version}-绿色版.${ext}"
+    },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,

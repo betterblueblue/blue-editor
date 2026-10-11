@@ -660,8 +660,9 @@ bridge.onMenuAction(async (action, payload) => {
       break;
     }
     case 'export:pandoc': {
-      const r = await bridge.invoke('pandoc.export', vditor.getValue(), exportName('.docx'));
-      if (r && r.ok === false) alert('Pandoc 导出失败: ' + r.error);
+      const ext = payload || 'docx';
+      const r = await bridge.invoke('pandoc.export', vditor.getValue(), exportName('.' + ext), payload || null);
+      if (r && r.ok === false) alert('导出失败: ' + r.error);
       break;
     }
     case 'import:pandoc': {
@@ -676,6 +677,12 @@ bridge.onMenuAction(async (action, payload) => {
       sidebarRefresh();
       break;
     }
+    case 'edit:undo':
+      try { vditor.focus(); vditor.vditor.undo.undo(vditor.vditor); } catch (e) {}
+      break;
+    case 'edit:redo':
+      try { vditor.focus(); vditor.vditor.undo.redo(vditor.vditor); } catch (e) {}
+      break;
     case 'view:sidebar': await setSidebar(payload); break;
     case 'view:toolbar': {
       document.body.classList.toggle('no-toolbar', !payload);

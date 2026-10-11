@@ -157,23 +157,25 @@ let pandocVersion = null; // null = 未检测/不可用
 function buildMenu() {
   const recent = setting.get('recentFiles') || [];
   const exportSub = [
-    { label: '导出 PDF', click: () => send('export:pdf') },
-    { label: '导出 HTML', click: () => send('export:html') },
-    { label: '导出 PNG', click: () => send('export:png') },
+    { label: 'PDF…', click: () => send('export:pdf') },
+    { label: 'HTML 网页…', click: () => send('export:html') },
+    { label: 'PNG 图片（全文长图）…', click: () => send('export:png') },
   ];
   if (pandocVersion) {
-    exportSub.push({ type: 'separator' }, { label: 'Pandoc 导出 (docx/odt/epub/latex/rst)', click: () => send('export:pandoc') });
+    exportSub.push(
+      { type: 'separator' },
+      { label: 'Word 文档 (.docx)…', click: () => send('export:pandoc', 'docx') },
+      { label: '电子书 (.epub)…', click: () => send('export:pandoc', 'epub') },
+      { label: '更多格式（ODT / LaTeX / RST）…', click: () => send('export:pandoc') }
+    );
   }
   const template = [
     {
       label: '文件',
       submenu: [
         { label: '新建', accelerator: 'CmdOrCtrl+N', click: () => send('file:new') },
-        { label: '新窗口', accelerator: 'CmdOrCtrl+Shift+N', click: () => createWindow() },
+        { label: '新建窗口', accelerator: 'CmdOrCtrl+Shift+N', click: () => createWindow() },
         { label: '打开…', accelerator: 'CmdOrCtrl+O', click: () => send('file:open') },
-        { type: 'separator' },
-        { label: '保存', accelerator: 'CmdOrCtrl+S', click: () => send('file:save') },
-        { label: '另存为…', accelerator: 'CmdOrCtrl+Shift+S', click: () => send('file:saveAs') },
         {
           label: '最近文件',
           submenu: recent.length
@@ -181,13 +183,28 @@ function buildMenu() {
             : [{ label: '（空）', enabled: false }]
         },
         { type: 'separator' },
-        { label: '导入 (Pandoc)…', enabled: !!pandocVersion, click: () => send('import:pandoc') },
-        { label: '导出', submenu: exportSub },
+        { label: '保存', accelerator: 'CmdOrCtrl+S', click: () => send('file:save') },
+        { label: '另存为…', accelerator: 'CmdOrCtrl+Shift+S', click: () => send('file:saveAs') },
         { type: 'separator' },
-        { label: '查找…', accelerator: 'CmdOrCtrl+F', click: () => send('edit:find') },
+        { label: '导入文档（Word / EPUB 等）…', enabled: !!pandocVersion, click: () => send('import:pandoc') },
+        { label: '导出为', submenu: exportSub },
+        { type: 'separator' },
         { label: '打印…', accelerator: 'CmdOrCtrl+P', click: () => { const w = win; w && w.webContents.print(); } },
         { type: 'separator' },
         { role: 'quit', label: '退出' }
+      ]
+    },
+    {
+      label: '编辑',
+      submenu: [
+        { label: '撤销', accelerator: 'CmdOrCtrl+Z', click: () => send('edit:undo') },
+        { label: '重做', accelerator: 'CmdOrCtrl+Shift+Z', click: () => send('edit:redo') },
+        { type: 'separator' },
+        { role: 'cut', label: '剪切' },
+        { role: 'copy', label: '复制' },
+        { role: 'paste', label: '粘贴' },
+        { type: 'separator' },
+        { label: '查找 / 替换…', accelerator: 'CmdOrCtrl+F', click: () => send('edit:find') }
       ]
     },
     {
@@ -197,16 +214,16 @@ function buildMenu() {
         { label: '即时渲染', click: () => send('view:mode', 'ir') },
         { label: '分屏预览', click: () => send('view:mode', 'sv') },
         { type: 'separator' },
-        { label: '文件侧栏', type: 'checkbox', checked: setting.get('sidebar') !== false, click: (i) => send('view:sidebar', i.checked) },
+        { label: '侧边栏', type: 'checkbox', checked: setting.get('sidebar') !== false, click: (i) => send('view:sidebar', i.checked) },
         { label: '工具栏', type: 'checkbox', checked: setting.get('toolbar') === true, click: (i) => send('view:toolbar', i.checked) },
         { label: '深色主题', type: 'checkbox', checked: setting.get('theme') === 'dark', click: (i) => send('view:theme', i.checked ? 'dark' : 'classic') },
         { type: 'separator' },
-        { role: 'reload', label: '重新加载' },
-        { role: 'toggleDevTools', label: '开发者工具' },
-        { type: 'separator' },
         { role: 'resetZoom', label: '实际大小' },
         { role: 'zoomIn', label: '放大' },
-        { role: 'zoomOut', label: '缩小' }
+        { role: 'zoomOut', label: '缩小' },
+        { type: 'separator' },
+        { role: 'reload', label: '重新加载' },
+        { role: 'toggleDevTools', label: '开发者工具' }
       ]
     },
     {
@@ -671,10 +688,13 @@ const PANDOC_EXPORT_FILTERS = [
   { name: 'reStructuredText', extensions: ['rst'] }
 ];
 
-ipcMain.handle('pandoc.export', async (e, content, defaultName) => {
+ipcMain.handle('pandoc.export', async (e, content, defaultName, forceExt) => {
+  const filters = forceExt
+    ? PANDOC_EXPORT_FILTERS.filter(f => f.extensions.includes(forceExt))
+    : PANDOC_EXPORT_FILTERS;
   const r = await dialog.showSaveDialog(winOf(e), {
     defaultPath: defaultName || 'untitled.docx',
-    filters: PANDOC_EXPORT_FILTERS
+    filters: filters.length ? filters : PANDOC_EXPORT_FILTERS
   });
   if (r.canceled || !r.filePath) return null;
   const dst = r.filePath;

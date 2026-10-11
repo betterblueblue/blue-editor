@@ -590,7 +590,13 @@ function setMode(m) {
 async function setTheme(t) {
   theme = t;
   document.body.classList.toggle('dark', t === 'dark');
-  vditor.setTheme(t === 'dark' ? 'dark' : 'classic');
+  // 三参：编辑器皮肤 + 内容主题 + 代码高亮主题（之前只传了编辑器皮肤，
+  // 深色下代码块/正文样式没跟着换 → 白块）
+  if (t === 'dark') {
+    vditor.setTheme('dark', 'dark', 'github-dark');
+  } else {
+    vditor.setTheme('classic', 'light', 'github');
+  }
   await bridge.invoke('setting.put', 'theme', t);
 }
 

@@ -7,6 +7,8 @@ let currentPath = null;
 let dirty = false;
 let draftTimer = null;
 let draftId = null; // 未命名文档的草稿身份（窗口无关，恢复后可续用）
+let docEol = 'LF';   // 原文件的换行风格，保存时还原（否则一次保存全文件换行 diff）
+let docEncoding = 'utf8'; // GBK 打开的文件保存时转 UTF-8 并提示
 let theme = 'classic';
 let mode = 'wysiwyg';
 
@@ -119,7 +121,7 @@ async function openSidebarFile(p) {
   if (currentPath === p) return;
   if (!(await guardDirty())) return;
   const r = await bridge.invoke('file.read', p);
-  if (r && !r.error) loadDoc(r.path, r.content);
+  if (r && !r.error) loadDoc(r.path, r.content, r);
   else alert('无法打开: ' + (r && r.error));
 }
 
@@ -140,10 +142,14 @@ function attachDropTarget(el, dirPath) {
     if (!data || !data.path || data.path === dirPath) return;
     const r = await bridge.invoke('file.move', data.path, dirPath);
     if (!r || !r.ok) { alert('移动失败: ' + (r && r.error)); return; }
-    // 拖的是当前文档 → 同步 currentPath（树刷新由 dir:changed 负责）
+    // 拖的是当前文档 → 同步路径、监听、图片基准和草稿（树刷新由 dir:changed 负责）
     if (currentPath === data.path) {
+      await bridge.invoke('draft.clear', data.path, null); // 旧路径的草稿身份作废
       currentPath = r.newPath;
       refreshTitle();
+      setDocBase(currentPath);
+      watchCurrentFile();
+      flushDraft(); // 以新路径重建草稿
     }
   };
 }
@@ -167,7 +173,14 @@ function initSidebarDnD() {
     if (!data || !data.path || !treeRoot) return;
     const r = await bridge.invoke('file.move', data.path, treeRoot);
     if (!r || !r.ok) { alert('移动失败: ' + (r && r.error)); return; }
-    if (currentPath === data.path) { currentPath = r.newPath; refreshTitle(); }
+    if (currentPath === data.path) {
+      await bridge.invoke('draft.clear', data.path, null);
+      currentPath = r.newPath;
+      refreshTitle();
+      setDocBase(currentPath);
+      watchCurrentFile();
+      flushDraft();
+    }
   };
 }
 
@@ -565,6 +578,12 @@ function createEditor(initialValue) {
   return vditor;
 }
 
+// 相对路径图片/链接按文档所在目录解析（Lute 渲染前设好 base；
+// 新建、另存为、移动文档都要重新指）
+function setDocBase(p) {
+  try { if (p && vditor.vditor.lute) vditor.vditor.lute.SetLinkBase('file:///' + dirname(p).replace(/\\/g, '/') + '/'); } catch (e) {}
+}
+
 // 文档内链接点击：http(s)/mailto 交系统浏览器；#anchor 页内跳转；
 // 相对 .md 链接按文档目录解析后在编辑器里打开；其余一律不理
 async function openLink(href) {
@@ -604,41 +623,56 @@ async function openLink(href) {
 async function guardDirty() {
   if (!dirty) return true;
   if (vditor) flushDraft();
-  return window.confirm('当前文档有未保存修改，仍要继续吗？\n（自动草稿已写入 userData/drafts）');
+  const ok = window.confirm('当前文档有未保存修改，仍要继续吗？\n（自动草稿已写入 userData/drafts）');
+  if (ok) {
+    // 用户明确放弃修改 → 把草稿也清掉，否则下次启动又复活成脏窗口
+    await bridge.invoke('draft.clear', currentPath, draftId);
+    draftId = null;
+  }
+  return ok;
 }
 
-function loadDoc(path, content) {
+function loadDoc(path, content, meta) {
   currentPath = path;
   dirty = false;
-  // 相对路径图片/链接按文档所在目录解析（Lute 渲染前设好 base）
-  try {
-    if (path && vditor.vditor.lute) {
-      vditor.vditor.lute.SetLinkBase('file:///' + dirname(path).replace(/\\/g, '/') + '/');
-    }
-  } catch (e) {}
+  docEol = /\r\n/.test(content) ? 'CRLF' : 'LF';
+  docEncoding = (meta && meta.encoding) || 'utf8';
+  setDocBase(path);
   vditor.setValue(content);
   markClean();
   sidebarRefresh();
   watchCurrentFile();
+  if (docEncoding !== 'utf8') {
+    alert('该文件不是 UTF-8 编码（已按 ' + docEncoding.toUpperCase() + ' 解码显示）。\n保存时将转换为 UTF-8。');
+  }
+}
+
+// 保存用的源文本：按原文件换行风格还原（Vditor 内部统一 LF）
+function getSaveContent() {
+  const v = vditor.getValue();
+  return docEol === 'CRLF' ? v.replace(/\n/g, '\r\n') : v;
 }
 
 async function save() {
   if (!currentPath) return saveAs();
-  const r = await bridge.invoke('file.save', currentPath, vditor.getValue());
+  const r = await bridge.invoke('file.save', currentPath, getSaveContent());
   if (r && r.ok) {
     await bridge.invoke('draft.clear', currentPath, draftId);
     draftId = null;
+    docEncoding = 'utf8'; // 保存后盘上就是 UTF-8
     markClean();
   } else alert('保存失败: ' + (r && r.error));
 }
 
 async function saveAs() {
   const prevPath = currentPath, prevDraft = draftId;
-  const r = await bridge.invoke('file.saveAs', vditor.getValue(), currentPath || 'untitled.md');
+  const r = await bridge.invoke('file.saveAs', getSaveContent(), currentPath || 'untitled.md');
   if (r && r.ok) {
     await bridge.invoke('draft.clear', prevPath, prevDraft); // 清旧身份的草稿
     currentPath = r.path;
     draftId = null;
+    docEncoding = 'utf8';
+    setDocBase(currentPath); // 目录变了，图片/链接的相对路径基准跟着换
     markClean();
     watchCurrentFile();
   }
@@ -680,14 +714,14 @@ bridge.onMenuAction(async (action, payload) => {
     case 'file:open': {
       if (!(await guardDirty())) break;
       const r = await bridge.invoke('file.openDialog');
-      if (r && !r.error) loadDoc(r.path, r.content);
+      if (r && !r.error) loadDoc(r.path, r.content, r);
       else if (r && r.error) alert('无法打开: ' + r.error);
       break;
     }
     case 'file:openPath': {
       if (!(await guardDirty())) break;
       const r = await bridge.invoke('file.read', payload);
-      if (r && !r.error) loadDoc(r.path, r.content);
+      if (r && !r.error) loadDoc(r.path, r.content, r);
       else alert('无法打开: ' + (r && r.error));
       break;
     }
@@ -696,6 +730,8 @@ bridge.onMenuAction(async (action, payload) => {
       if (!(await guardDirty())) break;
       currentPath = payload;
       dirty = true;
+      docEol = 'LF'; docEncoding = 'utf8';
+      setDocBase(currentPath);
       vditor.setValue('');
       refreshTitle();
       sidebarRefresh();
@@ -735,7 +771,7 @@ bridge.onMenuAction(async (action, payload) => {
     }
     case 'export:pandoc': {
       const ext = payload || 'docx';
-      const r = await bridge.invoke('pandoc.export', vditor.getValue(), exportName('.' + ext), payload || null);
+      const r = await bridge.invoke('pandoc.export', vditor.getValue(), exportName('.' + ext), payload || null, currentPath);
       if (r && r.ok === false) alert('导出失败: ' + r.error);
       break;
     }
@@ -757,6 +793,7 @@ bridge.onMenuAction(async (action, payload) => {
     case 'edit:redo':
       try { vditor.focus(); vditor.vditor.undo.redo(vditor.vditor); } catch (e) {}
       break;
+    case 'app:flushDraft': flushDraft(); break; // 更新安装前主进程要求写盘
     case 'view:sidebar': await setSidebar(payload); break;
     case 'view:toolbar': {
       document.body.classList.toggle('no-toolbar', !payload);
@@ -769,9 +806,7 @@ bridge.onMenuAction(async (action, payload) => {
       currentPath = payload.path || null;
       draftId = payload.draftId || null;
       dirty = true;
-      if (currentPath) {
-        try { vditor.vditor.lute.SetLinkBase('file:///' + dirname(currentPath).replace(/\\/g, '/') + '/'); } catch (e) {}
-      }
+      if (currentPath) setDocBase(currentPath);
       vditor.setValue(payload.content || '');
       dirty = true; refreshTitle(); // 草稿本身是未保存状态
       sidebarRefresh();
@@ -785,6 +820,9 @@ bridge.onMenuAction(async (action, payload) => {
         await save();
         if (!dirty) await bridge.invoke('app.closeNow'); // 保存成功才关
       } else if (r === 1) {   // 不保存
+        // 明确放弃修改 → 草稿一并清掉，否则下次启动复活成脏窗口
+        await bridge.invoke('draft.clear', currentPath, draftId);
+        draftId = null;
         await bridge.invoke('app.closeNow');
       }
       // 2 = 取消 → 留在原地
@@ -800,22 +838,26 @@ const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // 用 Vditor.preview 离屏渲染整篇（数学/图表/代码高亮全部落 DOM），
-// 图片相对路径改 file:// 绝对路径，样式经 export.cssBundle 全内联 → 单文件可移植
+// 本地图片内嵌为 data: URI（file:// 绝对路径发出去就是裂图），
+// 样式经 export.cssBundle 全内联 → 单文件可移植
 async function buildHTMLDoc() {
   const host = document.createElement('div');
   host.style.cssText = 'position:absolute;left:-99999px;top:0;width:860px;';
   document.body.appendChild(host);
   try {
     await Vditor.preview(host, vditor.getValue(), { cdn: '../../node_modules/vditor' });
-    if (currentPath) {
-      const base = dirname(currentPath).replace(/\\/g, '/');
-      host.querySelectorAll('img').forEach(img => {
-        const src = img.getAttribute('src');
-        if (src && !/^(data:|file:|https?:)/i.test(src)) {
-          img.setAttribute('src', 'file:///' + encodeURI(base + '/' + src));
-        }
-      });
-    }
+    const base = currentPath ? dirname(currentPath).replace(/\\/g, '/') : null;
+    await Promise.all([...host.querySelectorAll('img')].map(async (img) => {
+      const src = img.getAttribute('src');
+      if (!src || /^(data:|https?:)/i.test(src)) return;
+      // linkBase 已把相对路径改成 file:///，两种形式都认
+      const p = /^file:/i.test(src)
+        ? decodeURIComponent(src.replace(/^file:\/+/, ''))
+        : (base ? base + '/' + src : null);
+      if (!p) return;
+      const r = await bridge.invoke('file.readBase64', p);
+      if (r && r.ok) img.setAttribute('src', `data:${r.mime};base64,${r.base64}`);
+    }));
     const css = await bridge.invoke('export.cssBundle');
     return '<!doctype html><html><head><meta charset="utf-8"><title>' +
       escapeHtml(basename(currentPath) || 'untitled') +
@@ -858,7 +900,7 @@ window.__ed = {
   get dirty() { return dirty; },
   save, saveAs, setMode,
   // 测试句柄
-  extractHeads, moveSection, renderTree, expandedDirs, dirCache,
+  buildHTMLDoc, flushDraft, extractHeads, moveSection, renderTree, expandedDirs, dirCache,
   get outlineHeads() { return outlineHeads; }
 };
 

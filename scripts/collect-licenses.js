@@ -16,6 +16,20 @@ const SOURCES = [
   // 名称与出处见 THIRD_PARTY_NOTICES.md，通用文本在 licenses/ 下另附。
 ];
 
+// electron-updater 及其传递依赖——逐个找 LICENSE* 文件
+const RUNTIME_DEPS = [
+  'electron-updater', 'builder-util-runtime', 'fs-extra', 'js-yaml',
+  'argparse', 'semver', 'lazy-val', 'lodash.escaperegexp', 'lodash.isequal',
+  'tiny-typed-emitter', 'sax', 'debug', 'ms', 'graceful-fs', 'jsonfile',
+  'universalify'
+];
+for (const dep of RUNTIME_DEPS) {
+  const dir = path.join(root, 'node_modules', dep);
+  if (!fs.existsSync(dir)) continue;
+  const lic = fs.readdirSync(dir).find(f => /^(licen[sc]e|copying)/i.test(f));
+  if (lic) SOURCES.push([dep, 'node_modules/' + dep + '/' + lic]);
+}
+
 fs.rmSync(path.join(root, 'licenses'), { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true });
 for (const [name, rel] of SOURCES) {

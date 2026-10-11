@@ -428,7 +428,8 @@ body.no-toolbar #vditor:not(.vditor--fullscreen) .vditor-toolbar {
 
 /* PNG 导出改用窗口拉高方案（main.js export.png），不再需要 capture 展开样式 */
 
-/* 打印/导出 PDF：只留编辑内容 */
+/* 打印/导出 PDF：只留编辑内容，且把内部滚动容器展开成全文高
+   （不展开的话 PDF/打印只出第一屏——.vditor-reset 是真正的滚动容器） */
 @media print {
   #findbar,
   #conflictbar,
@@ -437,5 +438,16 @@ body.no-toolbar #vditor:not(.vditor--fullscreen) .vditor-toolbar {
   .vditor-outline,
   .vditor-counter {
     display: none !important;
+  }
+  body,
+  #editor,
+  #vditor,
+  .vditor,
+  .vditor-reset,
+  .vditor-content,
+  .vditor-wysiwyg {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
   }
 }

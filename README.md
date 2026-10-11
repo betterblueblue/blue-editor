@@ -3,7 +3,8 @@
 轻量、离线优先的所见即所得 Markdown 桌面编辑器。
 
 > A lightweight, offline-first WYSIWYG Markdown editor — Electron + Vditor.
-> No telemetry, no account, no auto-update phoning home.
+> No telemetry, no account. 安装版启动时会向 GitHub 发起一次更新检查
+> （可在「关于 → 自动检查更新」关闭；下载更新前会先询问）。
 
 ![Blue Editor](docs/screenshot.png)
 

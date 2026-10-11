@@ -224,6 +224,8 @@ function buildMenu() {
       submenu: [
         { label: 'Blue Editor v' + app.getVersion(), enabled: false },
         { label: '检查更新…', click: () => checkUpdates(true) },
+        { label: '自动检查更新', type: 'checkbox', checked: setting.get('autoUpdate') !== false,
+          click: (i) => setting.put('autoUpdate', i.checked) },
         { label: '开源许可…', click: () => {
           // 打包后 licenses/ 在 resources/ 下；开发时用构建脚本生成的目录
           const dir = app.isPackaged
@@ -245,9 +247,9 @@ function addRecent(p) {
 }
 
 // ---------- pandoc ----------
-function runPandoc(args, input) {
+function runPandoc(args, input, opts) {
   return new Promise((resolve, reject) => {
-    const proc = spawn('pandoc', args, { windowsHide: true });
+    const proc = spawn('pandoc', args, { windowsHide: true, cwd: (opts && opts.cwd) || undefined });
     const out = [], err = [];
     proc.stdout.on('data', d => out.push(d));
     proc.stderr.on('data', d => err.push(d));
@@ -461,13 +463,41 @@ ipcMain.handle('shell.openExternal', (e, url) => {
 function readFileResult(p) {
   try {
     p = path.resolve(p); // 规范成绝对路径，渲染层拿到的 path 才能用于监听/对比
-    const r = { path: p, content: fs.readFileSync(p, 'utf8'), name: path.basename(p) };
+    const buf = fs.readFileSync(p);
+    let content, encoding = 'utf8';
+    if (buf.length >= 3 && buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) {
+      content = new TextDecoder('utf-8').decode(buf.subarray(3)); // 去 BOM
+    } else {
+      try {
+        // GBK 等 ANSI 编码按 utf-8 强解会得到一堆替换符——fatal 探一下再回退
+        content = new TextDecoder('utf-8', { fatal: true }).decode(buf);
+      } catch (e) {
+        try { content = new TextDecoder('gbk').decode(buf); encoding = 'gbk'; }
+        catch (e2) { content = buf.toString('utf8'); }
+      }
+    }
+    const r = { path: p, content, name: path.basename(p), encoding };
     addRecent(p);
     return r;
   } catch (e) {
     return { path: p, error: e.message };
   }
 }
+
+// 导出 HTML 时把图片内嵌成 data: URI（file:// 绝对路径发出去就是裂图）
+ipcMain.handle('file.readBase64', (e, p) => {
+  try {
+    const buf = fs.readFileSync(path.resolve(p));
+    const ext = path.extname(p).slice(1).toLowerCase();
+    const mime = {
+      png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+      webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', ico: 'image/x-icon'
+    }[ext] || 'application/octet-stream';
+    return { ok: true, base64: buf.toString('base64'), mime };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
 
 // 粘贴/拖入图片 → 落到 <文档名>.assets/，返回相对路径
 ipcMain.handle('asset.save', (e, docPath, fileName, bytes) => {
@@ -587,11 +617,13 @@ ipcMain.handle('export.pdf', async (e, defaultName) => {
   return { ok: true, path: r.filePath };
 });
 
-ipcMain.handle('export.html', async (e, html, defaultName) => {
-  const r = await dialog.showSaveDialog(winOf(e), {
-    defaultPath: defaultName || 'untitled.html',
-    filters: [{ name: 'HTML', extensions: ['html'] }]
-  });
+ipcMain.handle('export.html', async (e, html, defaultName, testPath) => {
+  const r = testPath
+    ? { filePath: testPath } // 自动化冒烟用：跳过保存对话框
+    : await dialog.showSaveDialog(winOf(e), {
+        defaultPath: defaultName || 'untitled.html',
+        filters: [{ name: 'HTML', extensions: ['html'] }]
+      });
   if (r.canceled || !r.filePath) return null;
   fs.writeFileSync(r.filePath, html, 'utf8');
   return { ok: true, path: r.filePath };
@@ -718,14 +750,16 @@ const PANDOC_EXPORT_FILTERS = [
   { name: 'reStructuredText', extensions: ['rst'] }
 ];
 
-ipcMain.handle('pandoc.export', async (e, content, defaultName, forceExt) => {
+ipcMain.handle('pandoc.export', async (e, content, defaultName, forceExt, docPath, testPath) => {
   const filters = forceExt
     ? PANDOC_EXPORT_FILTERS.filter(f => f.extensions.includes(forceExt))
     : PANDOC_EXPORT_FILTERS;
-  const r = await dialog.showSaveDialog(winOf(e), {
-    defaultPath: defaultName || 'untitled.docx',
-    filters: filters.length ? filters : PANDOC_EXPORT_FILTERS
-  });
+  const r = testPath
+    ? { filePath: testPath } // 自动化冒烟用：跳过保存对话框
+    : await dialog.showSaveDialog(winOf(e), {
+        defaultPath: defaultName || 'untitled.docx',
+        filters: filters.length ? filters : PANDOC_EXPORT_FILTERS
+      });
   if (r.canceled || !r.filePath) return null;
   const dst = r.filePath;
   const fmt = { '.docx': 'docx', '.odt': 'odt', '.epub': 'epub', '.latex': 'latex', '.tex': 'latex', '.rst': 'rst' }[path.extname(dst).toLowerCase()];
@@ -733,7 +767,9 @@ ipcMain.handle('pandoc.export', async (e, content, defaultName, forceExt) => {
   const tmp = path.join(app.getPath('temp'), 'blue-editor-export-' + Date.now() + '.md');
   try {
     fs.writeFileSync(tmp, content, 'utf8');
-    await runPandoc([tmp, '-f', 'gfm', '-t', fmt, '-o', dst]);
+    // 相对路径图片按文档所在目录解析——md 写在 temp 里，必须把 cwd 指过去
+    const cwd = docPath ? path.dirname(docPath) : undefined;
+    await runPandoc([tmp, '-f', 'gfm', '-t', fmt, '-o', dst], undefined, { cwd });
     return { ok: true, path: dst };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -767,12 +803,16 @@ function initAutoUpdater() {
   } catch (e) {
     return;
   }
-  autoUpdater.autoDownload = true; // 静默后台下载，完事再弹窗
+  autoUpdater.autoDownload = false; // 110MB 不能偷偷下——先问用户
   autoUpdater.on('update-available', (info) => {
-    if (manualUpdateCheck) {
-      msgBox(null, { type: 'info', message: `发现新版本 v${info.version}`, detail: '正在后台下载，完成后会提示重启安装。' });
-      manualUpdateCheck = false;
-    }
+    manualUpdateCheck = false;
+    msgBox(null, {
+      type: 'info',
+      message: `发现新版本 v${info.version}`,
+      detail: '是否下载并安装？（约 110MB，增量更新会更小）',
+      buttons: ['下载并安装', '稍后'],
+      defaultId: 0, cancelId: 1
+    }).then(r => { if (r.response === 0) autoUpdater.downloadUpdate(); });
   });
   autoUpdater.on('update-not-available', () => {
     if (manualUpdateCheck) {
@@ -788,10 +828,16 @@ function initAutoUpdater() {
       buttons: ['立即重启安装', '稍后'],
       defaultId: 0, cancelId: 1
     }).then(r => {
-      if (r.response === 0) {
+      if (r.response !== 0) return;
+      // 安装前先让各窗口把草稿写盘——quitAndInstall 跳过未保存确认，
+      // 不写的话防抖窗口期内的输入会丢
+      wins.forEach(w => {
+        try { w.webContents.send('menu:action', { action: 'app:flushDraft' }); } catch (e) {}
+      });
+      setTimeout(() => {
         app._installing = true; // 跳过各窗口的未保存确认
         autoUpdater.quitAndInstall();
-      }
+      }, 600);
     });
   });
   autoUpdater.on('error', (err) => {
@@ -800,7 +846,9 @@ function initAutoUpdater() {
       manualUpdateCheck = false;
     }
   });
-  autoUpdater.checkForUpdates();
+  if (setting.get('autoUpdate') !== false) {
+    autoUpdater.checkForUpdates();
+  }
 }
 
 // ---------- 生命周期 ----------

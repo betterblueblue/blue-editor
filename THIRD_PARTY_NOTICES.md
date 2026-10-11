@@ -9,7 +9,17 @@ Blue Editor 包含以下第三方组件。本文件列出其名称、许可证�
 |---|---|---|---|
 | Electron | ^44.7.0 | MIT | 桌面应用运行时 |
 | Vditor | ^4.0.0 | MIT | 所见即所得 Markdown 编辑器内核（B3log / Vanessa219） |
+| electron-updater | ^6.8.9 | MIT | 在线更新（electron-builder 团队） |
 | electron-builder | ^26.15.3 | MIT | 打包工具（开发依赖） |
+
+## electron-updater 的运行时依赖（随应用打包）
+
+| 组件 | 许可证 |
+|---|---|
+| builder-util-runtime / fs-extra / js-yaml / lazy-val / lodash.escaperegexp / lodash.isequal / tiny-typed-emitter / debug / ms / jsonfile / universalify | MIT |
+| argparse | Python-2.0 |
+| semver / graceful-fs | ISC |
+| sax | BlueOak-1.0.0 |
 
 ## Vditor 发行包内捆绑的组件（node_modules/vditor/dist/js/）
 

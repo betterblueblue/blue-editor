@@ -692,7 +692,8 @@ function restoreDrafts() {
   } catch (e) {}
   drafts.forEach(d => {
     // 磁盘内容与草稿一致 → 是已保存后的残留，直接删掉，不再弹脏窗口
-    if (d.path) {
+    // （html 格式草稿在这里没法比，留给渲染层恢复后自己比对关窗）
+    if (d.path && (!d.fmt || d.fmt === 'md')) {
       try {
         if (fs.existsSync(d.path) && fs.readFileSync(d.path, 'utf8') === d.content) {
           fs.unlinkSync(draftFile(d.path, d.draftId));

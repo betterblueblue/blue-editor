@@ -59,11 +59,19 @@ function applyCnTypography(md) {
 }
 
 // 修正前的内容留在内存，菜单可一键恢复（setValue 不进 Vditor 撤销栈，Ctrl+Z 无效）
+// 等价于 vditor.getValue()（输出实测逐字节一致），但跳过 Vditor 包装层，
+// 大文档下约快 3 倍（175KB：~1.7s vs ~5.2s）。sv 模式本来就是取 textarea，直接走原路
+const getMd = () => {
+  const el = mode !== 'sv' && vditor.vditor[mode] && vditor.vditor[mode].element;
+  return el ? vditor.vditor.lute[mode === 'ir' ? 'VditorIRDOM2Md' : 'VditorDOM2Md'](el.innerHTML)
+            : vditor.getValue();
+};
+
 let lastFixBackup = null;
 
 function fixTypography() {
   if (!vditor) return;
-  const before = vditor.getValue();
+  const before = getMd();
   if (currentPath) bridge.invoke('hist.snap', currentPath, before); // 修正前留档
   const r = applyCnTypography(before);
   // Lute 术语库（github→GitHub 等，代码块天然不动）：借编辑器实例开一次再关
@@ -75,7 +83,7 @@ function fixTypography() {
   } catch (e) {
     vditor.setValue(r.text, false);
   }
-  if (vditor.getValue() !== before) {
+  if (getMd() !== before) {
     lastFixBackup = { path: currentPath, content: before };
     markDirty();
   }
@@ -421,11 +429,33 @@ function extractHeads(md) {
   return heads;
 }
 
+// 收集元素内可见文本（display:none 的隐藏标记不计入——与查找同一条规则）
+function visibleText(el) {
+  let t = '';
+  const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => {
+      const p = n.parentElement;
+      if (p && !p.offsetWidth && !p.offsetHeight) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+  for (let n = w.nextNode(); n; n = w.nextNode()) t += n.nodeValue;
+  return t;
+}
+
+// 大纲从 DOM 标题提取——原来走 getValue()(Lute 全量序列化，175KB 文档 ~5s)，
+// 它在 input 的 400ms 防抖路径上，大文档下打字停顿就冻结
 function renderOutline() {
   const ul = document.getElementById('outline-list');
   ul.innerHTML = '';
-  const md = vditor ? vditor.getValue() : '';
-  outlineHeads = extractHeads(md);
+  // 与 scrollToHeading 的 #vditor hN 顺序一致（同一 DOM 枚举）
+  outlineHeads = [...document.querySelectorAll(
+    '#vditor h1, #vditor h2, #vditor h3, #vditor h4, #vditor h5, #vditor h6')]
+    .map(el => ({
+      level: +el.tagName[1],
+      text: visibleText(el).replace(/^#{1,6}\s+/, '').trim() // IR 模式标记是可见文本，剥掉
+    }))
+    .filter(h => h.text);
   if (!outlineHeads.length) {
     ul.innerHTML = '<li class="empty">（无标题）</li>';
     return;
@@ -472,9 +502,11 @@ function sectionRange(lines, heads, i) {
 
 function moveSection(fromIdx, toIdx, before) {
   if (fromIdx === toIdx) return;
-  const md = vditor.getValue();
+  const md = getMd();
   const lines = md.split('\n');
-  const heads = outlineHeads;
+  // 大纲条目已改为 DOM 提取（无行号），这里从 markdown 重新提取；
+  // 正常文档两种枚举顺序一致，索引可以直接对应
+  const heads = extractHeads(md);
   if (fromIdx < 0 || fromIdx >= heads.length || toIdx >= heads.length) return;
 
   const [srcStart, srcEnd] = sectionRange(lines, heads, fromIdx);
@@ -633,7 +665,7 @@ function initFindbar() {
   $find('replace-all').onclick = async () => {
     const from = input.value, to = $find('replace-input').value;
     if (!from || !vditor) return;
-    const md = vditor.getValue();
+    const md = getMd();
     const cnt = md.split(from).length - 1;
     if (!cnt) { showAlert('未找到: ' + from); return; }
     if (!await confirmBox(`确定把 ${cnt} 处「${from}」替换为「${to}」？`)) return;
@@ -686,7 +718,11 @@ const flushDraft = () => {
   if (!vditor) return;
   // 未命名文档第一次写草稿时生成稳定身份；之后恢复/清理都按它走
   if (!currentPath && !draftId) draftId = 'w' + Date.now().toString(16) + Math.random().toString(16).slice(2, 8);
-  bridge.invoke('draft.save', { path: currentPath, draftId, content: vditor.getValue() });
+  // getValue 是 Lute 全量序列化（175KB 文档 ~5s），脏状态每 1.5s 跑一次扛不住。
+  // 改存编辑器的渲染态 HTML（~几十ms），恢复时用同一个 Lute 转回 markdown。
+  const el = mode !== 'sv' && vditor.vditor[mode] && vditor.vditor[mode].element;
+  const content = el ? el.innerHTML : getMd();
+  bridge.invoke('draft.save', { path: currentPath, draftId, content, fmt: el ? mode : 'md' });
 };
 
 const markClean = async () => {
@@ -836,7 +872,7 @@ function loadDoc(path, content, meta) {
 
 // 保存用的源文本：按原文件换行风格还原（Vditor 内部统一 LF）
 function getSaveContent() {
-  const v = vditor.getValue();
+  const v = getMd();
   return docEol === 'CRLF' ? v.replace(/\n/g, '\r\n') : v;
 }
 
@@ -866,7 +902,7 @@ async function saveAs() {
 }
 
 function setMode(m) {
-  const content = vditor.getValue();
+  const content = getMd();
   mode = m;
   vditor.destroy();
   vditor = createEditor(content);
@@ -964,7 +1000,7 @@ bridge.onMenuAction(async (action, payload) => {
     }
     case 'export:pandoc': {
       const ext = payload || 'docx';
-      const r = await bridge.invoke('pandoc.export', vditor.getValue(), exportName('.' + ext), payload || null, currentPath);
+      const r = await bridge.invoke('pandoc.export', getMd(), exportName('.' + ext), payload || null, currentPath);
       if (r && r.ok === false) showAlert('导出失败: ' + r.error);
       break;
     }
@@ -1008,7 +1044,26 @@ bridge.onMenuAction(async (action, payload) => {
       draftId = payload.draftId || null;
       dirty = true;
       if (currentPath) setDocBase(currentPath);
-      vditor.setValue(payload.content || '');
+      let content = payload.content || '';
+      // html 格式草稿（大文档避免启动时全量序列化）：转回 markdown 再进编辑器
+      if (payload.fmt === 'wysiwyg' || payload.fmt === 'ir') {
+        try {
+          content = vditor.vditor.lute[payload.fmt === 'ir' ? 'VditorIRDOM2Md' : 'VditorDOM2Md'](content);
+        } catch (e) {}
+        // 主进程只能对 md 草稿做"与磁盘相同则跳过"；html 草稿在这里补——
+        // 恢复内容跟磁盘一致说明是保存成功后的残留，清档关窗
+        if (currentPath) {
+          const r = await bridge.invoke('file.read', currentPath);
+          const strip = (s) => (s || '').replace(/\s+$/, '');
+          if (r && r.content && strip(r.content) === strip(content)) {
+            dirty = false;
+            bridge.invoke('draft.clear', currentPath, draftId);
+            await bridge.invoke('app.closeNow');
+            break;
+          }
+        }
+      }
+      vditor.setValue(content);
       dirty = true; refreshTitle(); // 草稿本身是未保存状态
       sidebarRefresh();
       watchCurrentFile();
@@ -1066,7 +1121,7 @@ async function selectHist(ts) {
   const box = document.getElementById('hist-diff');
   const r = await bridge.invoke('hist.read', currentPath, ts);
   if (!r.ok) { box.innerHTML = '<div class="hist-empty">读取快照失败</div>'; return; }
-  const d = await bridge.invoke('hist.diff', r.content, vditor.getValue());
+  const d = await bridge.invoke('hist.diff', r.content, getMd());
   box.innerHTML = '';
   const rows = [];
   for (const [op, text] of (d.diffs || [])) {
@@ -1088,7 +1143,7 @@ document.getElementById('hist-restore').onclick = async () => {
   if (!await confirmBox('恢复此版本？当前内容会先留存一份快照，可再次恢复回来')) return;
   const r = await bridge.invoke('hist.read', currentPath, histSel);
   if (!r.ok) { showAlert('读取快照失败'); return; }
-  await bridge.invoke('hist.snap', currentPath, vditor.getValue());
+  await bridge.invoke('hist.snap', currentPath, getMd());
   vditor.setValue(r.content, false);
   markDirty();
   document.getElementById('histdlg').classList.add('hidden');
@@ -1118,7 +1173,7 @@ async function buildWechatHTML(themeKey, md) {
   host.style.cssText = 'position:absolute;left:-99999px;top:0;width:677px;';
   document.body.appendChild(host);
   try {
-    await Vditor.preview(host, md !== undefined ? md : vditor.getValue(), { cdn: '../../node_modules/vditor' });
+    await Vditor.preview(host, md !== undefined ? md : getMd(), { cdn: '../../node_modules/vditor' });
     // 本地图片公众号收不下 → 占位文字 + 计数提示
     // （相对路径、file://、data: 一律按本地算——离屏 preview 不会解析相对路径）
     let localImgs = 0;
@@ -1244,7 +1299,7 @@ async function buildHTMLDoc() {
   host.style.cssText = 'position:absolute;left:-99999px;top:0;width:860px;';
   document.body.appendChild(host);
   try {
-    await Vditor.preview(host, vditor.getValue(), { cdn: '../../node_modules/vditor' });
+    await Vditor.preview(host, getMd(), { cdn: '../../node_modules/vditor' });
     const base = currentPath ? dirname(currentPath).replace(/\\/g, '/') : null;
     await Promise.all([...host.querySelectorAll('img')].map(async (img) => {
       const src = img.getAttribute('src');

@@ -57,8 +57,6 @@ function isDir(p) {
 }
 
 const MD_EXT = ['.md', '.markdown', '.mdown', '.txt'];
-// 与 src/renderer/wechat-themes.js 的 key 一一对应（菜单文案在主进程维护）
-const WECHAT_MENU_THEMES = { blue: 'Blue 经典', simple: '简约', tech: '技术风' };
 function isOpenable(p) {
   return MD_EXT.includes(path.extname(p).toLowerCase());
 }
@@ -187,12 +185,7 @@ function buildMenu() {
         { label: '导入文档（Word / EPUB 等）…', enabled: !!pandocVersion, click: () => send('import:pandoc') },
         { label: '导出为', submenu: exportSub },
         { type: 'separator' },
-        {
-          label: '复制为公众号格式',
-          submenu: Object.entries(WECHAT_MENU_THEMES).map(([key, name]) => ({
-            label: name, click: () => send('publish:wechat', key)
-          }))
-        },
+        { label: '复制为公众号格式…', accelerator: 'CmdOrCtrl+Shift+C', click: () => send('publish:wechat') },
         { label: '版本历史…', click: () => send('file:history') },
         { type: 'separator' },
         { label: '打印…', accelerator: 'CmdOrCtrl+P', click: () => { const w = win; w && w.webContents.print(); } },

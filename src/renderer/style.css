@@ -516,6 +516,80 @@ body.dark #hist-foot button:first-child {
   color: #fff;
 }
 
+/* 公众号主题选择框 */
+#wcdlg {
+  position: fixed;
+  inset: 0;
+  z-index: 320;
+  background: rgba(0,0,0,.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#wcdlg.hidden { display: none; }
+#wcdlg-box {
+  background: #fff;
+  border-radius: 8px;
+  width: min(620px, 88vw);
+  height: min(480px, 82vh);
+  box-shadow: 0 8px 30px rgba(0,0,0,.3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#wc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  border-bottom: 1px solid #e1e4e8;
+}
+#wc-head button { border: none; background: none; font-size: 18px; cursor: pointer; color: #666; }
+#wc-body { flex: 1; display: flex; min-height: 0; }
+#wc-themes {
+  width: 130px;
+  flex-shrink: 0;
+  border-right: 1px solid #e1e4e8;
+  padding: 10px 8px;
+}
+.wc-theme-item {
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.wc-theme-item:hover { background: #f0f5ff; }
+.wc-theme-item.sel { background: #e0ebff; color: #1a56db; font-weight: 600; }
+#wc-frame {
+  flex: 1;
+  background: #fff;
+  overflow-y: auto;
+  padding: 16px;
+}
+#wc-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 16px;
+  border-top: 1px solid #e1e4e8;
+}
+#wc-foot button {
+  border: 1px solid #2e7ec7;
+  background: #2e7ec7;
+  color: #fff;
+  border-radius: 4px;
+  padding: 5px 20px;
+  cursor: pointer;
+  font-size: 13px;
+}
+body.dark #wcdlg-box { background: #2a3138; }
+body.dark #wc-head, body.dark #wc-themes, body.dark #wc-foot { border-color: #444c56; }
+body.dark #wc-head button { color: #aaa; }
+body.dark .wc-theme-item:hover { background: #333a41; }
+body.dark .wc-theme-item.sel { background: #1f3352; color: #6ea8ff; }
+
 /* ---------- 界面精简 ---------- */
 /* 工具栏：默认隐藏（视图菜单可开），全屏时强制显示 */
 body.no-toolbar #vditor:not(.vditor--fullscreen) .vditor-toolbar {

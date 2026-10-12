@@ -856,15 +856,7 @@ bridge.onMenuAction(async (action, payload) => {
     }
     case 'edit:fixCn': fixTypography(); break;
     case 'edit:undoFixCn': undoTypography(); break;
-    case 'publish:wechat': {
-      const r = await buildWechatHTML(payload);
-      await bridge.invoke('clipboard.write', { html: r.html, text: r.text });
-      let msg = '已复制，请到公众号编辑器粘贴';
-      if (r.localImgs) msg += `\n注意：${r.localImgs} 张本地图片已替换为占位，需在公众号后台重新插入`;
-      if (r.refCount) msg += `\n${r.refCount} 个外链已转为文末参考资料`;
-      alert(msg);
-      break;
-    }
+    case 'publish:wechat': openWechatPicker(); break;
     case 'edit:undo':
       try { vditor.focus(); vditor.vditor.undo.undo(vditor.vditor); } catch (e) {}
       break;
@@ -987,13 +979,14 @@ const HLJS_COLORS = {
 };
 
 // Vditor.preview 离屏渲染 → 外链转脚注 + 代码块保空白 + 样式全内联 + 去 class/id
-async function buildWechatHTML(themeKey) {
+// md 不传时取当前文档；传了用于预览小样
+async function buildWechatHTML(themeKey, md) {
   const theme = (window.WECHAT_THEMES || {})[themeKey] || Object.values(window.WECHAT_THEMES || {})[0];
   const host = document.createElement('div');
   host.style.cssText = 'position:absolute;left:-99999px;top:0;width:677px;';
   document.body.appendChild(host);
   try {
-    await Vditor.preview(host, vditor.getValue(), { cdn: '../../node_modules/vditor' });
+    await Vditor.preview(host, md !== undefined ? md : vditor.getValue(), { cdn: '../../node_modules/vditor' });
     // 本地图片公众号收不下 → 占位文字 + 计数提示
     // （相对路径、file://、data: 一律按本地算——离屏 preview 不会解析相对路径）
     let localImgs = 0;
@@ -1048,6 +1041,49 @@ async function buildWechatHTML(themeKey) {
     host.remove();
   }
 }
+
+// ---------- 公众号格式选择框 ----------
+const WC_SAMPLE = '## 示例标题\n\n这是一段**加粗**和*斜体*混排的示例正文，' +
+  '用来展示当前主题的排版效果。[示例链接](https://example.com) 也在这里。\n\n' +
+  '> 引用块的样式\n\n- 列表项一\n- 列表项二\n\n```js\nconst hello = "代码块";\n```\n';
+let wcTheme = 'blue';
+
+async function openWechatPicker() {
+  const themes = window.WECHAT_THEMES || {};
+  const list = document.getElementById('wc-themes');
+  list.innerHTML = '';
+  for (const [key, t] of Object.entries(themes)) {
+    const d = document.createElement('div');
+    d.className = 'wc-theme-item' + (key === wcTheme ? ' sel' : '');
+    d.textContent = t.name || key;
+    d.onclick = () => { wcTheme = key; renderWechatPreview(); };
+    list.appendChild(d);
+  }
+  document.getElementById('wcdlg').classList.remove('hidden');
+  renderWechatPreview();
+}
+
+async function renderWechatPreview() {
+  document.querySelectorAll('.wc-theme-item').forEach((el, i) =>
+    el.classList.toggle('sel', Object.keys(window.WECHAT_THEMES)[i] === wcTheme));
+  const r = await buildWechatHTML(wcTheme, WC_SAMPLE);
+  // 输出已是全内联样式 + 无 class/id，直接塞进 div 即可（iframe 会被 CSP frame-src 'none' 拦）
+  document.getElementById('wc-frame').innerHTML = r.html;
+}
+
+document.getElementById('wc-close').onclick =
+  () => document.getElementById('wcdlg').classList.add('hidden');
+document.getElementById('wcdlg').addEventListener('click',
+  e => { if (e.target.id === 'wcdlg') e.currentTarget.classList.add('hidden'); });
+document.getElementById('wc-copy').onclick = async () => {
+  const r = await buildWechatHTML(wcTheme);
+  await bridge.invoke('clipboard.write', { html: r.html, text: r.text });
+  document.getElementById('wcdlg').classList.add('hidden');
+  let msg = '已复制，请到公众号编辑器粘贴';
+  if (r.localImgs) msg += `\n注意：${r.localImgs} 张本地图片已替换为占位，需在公众号后台重新插入`;
+  if (r.refCount) msg += `\n${r.refCount} 个外链已转为文末参考资料`;
+  alert(msg);
+};
 
 const exportName = (ext) =>
   (basename(currentPath) || 'untitled').replace(/\.[^.]+$/, '') + ext;
@@ -1135,7 +1171,7 @@ window.__ed = {
   get dirty() { return dirty; },
   save, saveAs, setMode,
   // 测试句柄
-  buildHTMLDoc, buildWechatHTML, fixTypography, undoTypography, openHistory, flushDraft, extractHeads, moveSection, renderTree, expandedDirs, dirCache,
+  buildHTMLDoc, buildWechatHTML, fixTypography, undoTypography, openHistory, openWechatPicker, flushDraft, extractHeads, moveSection, renderTree, expandedDirs, dirCache,
   get outlineHeads() { return outlineHeads; }
 };
 

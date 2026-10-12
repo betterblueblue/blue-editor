@@ -1,6 +1,7 @@
 // 主进程：薄壳——窗口、文件读写、设置、最近文档、草稿备份、argv/单实例、导出、pandoc
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard, session } = require('electron');
 const { spawn } = require('child_process');
+const os = require('os');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -217,6 +218,7 @@ function buildMenu() {
         { type: 'separator' },
         { label: '侧边栏', type: 'checkbox', checked: setting.get('sidebar') !== false, click: (i) => send('view:sidebar', i.checked) },
         { label: '工具栏', type: 'checkbox', checked: setting.get('toolbar') === true, click: (i) => send('view:toolbar', i.checked) },
+        { label: '加载远程图片', type: 'checkbox', checked: setting.get('remoteImg') !== false, click: (i) => send('view:remoteImg', i.checked) },
         { label: '深色主题', type: 'checkbox', checked: setting.get('theme') === 'dark', click: (i) => send('view:theme', i.checked ? 'dark' : 'classic') },
         { type: 'separator' },
         { role: 'resetZoom', label: '实际大小' },
@@ -309,6 +311,31 @@ ipcMain.handle('setting.get', (e, k) => setting.get(k));
 ipcMain.handle('setting.put', (e, k, v) => setting.put(k, v));
 ipcMain.handle('recent.get', () => setting.get('recentFiles') || []);
 
+// ---------- 文件路径准入（纵深防御） ----------
+// 每个窗口记录"用户亲手确认过"的目录：侧栏浏览根（dir.watch 每次文档加载都会报）、
+// 打开/另存对话框的结果。写/删/移/改名只允许落在这些目录里；
+// 渲染层被恶意文档控制时，它没法替用户点对话框，爆炸半径被限制在已浏览的目录内。
+// 注：渲染层可以 dir.watch 任意目录来扩大范围——这是软边界，不是绝对的。
+const pathRoots = new Map(); // winId → Set<规范化小写目录>
+const IMG_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico', '.avif'];
+
+function allowDir(w, d) {
+  if (!w || !d) return;
+  const s = pathRoots.get(w.id) || new Set();
+  s.add(path.normalize(d).toLowerCase());
+  pathRoots.set(w.id, s);
+}
+const allowFile = (w, p) => p && allowDir(w, path.dirname(p));
+
+function pathOK(w, p) {
+  if (!w || !p) return false;
+  const n = path.normalize(p).toLowerCase();
+  for (const d of pathRoots.get(w.id) || []) {
+    if (n === d || n.startsWith(d + path.sep)) return true;
+  }
+  return false;
+}
+
 // 侧栏文件树：列目录（子目录 + md 文件）
 ipcMain.handle('dir.list', (e, dir) => {
   try {
@@ -332,6 +359,7 @@ ipcMain.handle('dir.list', (e, dir) => {
 const dirWatchers = new Map(); // winId → {watcher, win, dir, timer}
 ipcMain.handle('dir.watch', (e, dir) => {
   const w = winOf(e);
+  if (dir) allowDir(w, dir); // 浏览过的目录登记为准入根
   const prev = dirWatchers.get(w.id);
   if (prev && prev.dir === dir) return; // 同一个根 → 不动
   if (prev) { try { prev.watcher.close(); } catch (err) {} }
@@ -377,6 +405,7 @@ ipcMain.handle('file.watch', (e, p) => {
 ipcMain.handle('fs.createFile', (e, dir, name) => {
   try {
     const p = path.join(dir, name);
+    if (!pathOK(winOf(e), p)) return { ok: false, error: '路径不在已打开的目录内' };
     if (fs.existsSync(p)) return { ok: false, error: '已存在同名项' };
     fs.writeFileSync(p, '', 'utf8');
     return { ok: true, path: p };
@@ -388,6 +417,7 @@ ipcMain.handle('fs.createFile', (e, dir, name) => {
 ipcMain.handle('fs.createDir', (e, dir, name) => {
   try {
     const p = path.join(dir, name);
+    if (!pathOK(winOf(e), p)) return { ok: false, error: '路径不在已打开的目录内' };
     if (fs.existsSync(p)) return { ok: false, error: '已存在同名项' };
     fs.mkdirSync(p);
     return { ok: true, path: p };
@@ -398,6 +428,7 @@ ipcMain.handle('fs.createDir', (e, dir, name) => {
 
 ipcMain.handle('fs.rename', (e, from, newName) => {
   try {
+    if (!pathOK(winOf(e), from)) return { ok: false, error: '路径不在已打开的目录内' };
     const to = path.join(path.dirname(from), newName);
     if (fs.existsSync(to)) return { ok: false, error: '已存在同名项' };
     fs.renameSync(from, to);
@@ -417,6 +448,7 @@ ipcMain.handle('fs.rename', (e, from, newName) => {
 
 ipcMain.handle('fs.trash', async (e, p) => {
   try {
+    if (!pathOK(winOf(e), p)) return { ok: false, error: '路径不在已打开的目录内' };
     await shell.trashItem(path.normalize(p));
     return { ok: true };
   } catch (err) {
@@ -426,6 +458,9 @@ ipcMain.handle('fs.trash', async (e, p) => {
 ipcMain.handle('file.move', (e, src, destDir) => {
   try {
     const normSrc = path.normalize(src), normDest = path.normalize(destDir);
+    if (!pathOK(winOf(e), normSrc) || !pathOK(winOf(e), normDest)) {
+      return { ok: false, error: '路径不在已打开的目录内' };
+    }
     if (normSrc === normDest) return { ok: false, error: '目标即自身' };
     // 不能把目录移到自己里面
     if (normDest.toLowerCase().startsWith(normSrc.toLowerCase() + path.sep)) {
@@ -457,10 +492,17 @@ ipcMain.handle('file.openDialog', async (e) => {
     ]
   });
   if (r.canceled || !r.filePaths[0]) return null;
+  allowFile(winOf(e), r.filePaths[0]);
   return readFileResult(r.filePaths[0]);
 });
 
-ipcMain.handle('file.read', (e, p) => readFileResult(p));
+// 只允许读文本类文档，挡掉 .ssh/id_rsa 这类任意文件读取
+ipcMain.handle('file.read', (e, p) => {
+  if (!MD_EXT.includes(path.extname(p).toLowerCase())) {
+    return { path: p, error: '不支持的文件类型' };
+  }
+  return readFileResult(p);
+});
 
 // 渲染层请求用系统浏览器打开链接（只允许 http/https/mailto）
 ipcMain.handle('shell.openExternal', (e, url) => {
@@ -498,6 +540,9 @@ function readFileResult(p) {
 // 导出 HTML 时把图片内嵌成 data: URI（file:// 绝对路径发出去就是裂图）
 ipcMain.handle('file.readBase64', (e, p) => {
   try {
+    if (!IMG_EXT.includes(path.extname(p).toLowerCase())) {
+      return { ok: false, error: '只允许读取图片文件' };
+    }
     const buf = fs.readFileSync(path.resolve(p));
     const ext = path.extname(p).slice(1).toLowerCase();
     const mime = {
@@ -513,6 +558,7 @@ ipcMain.handle('file.readBase64', (e, p) => {
 // 粘贴/拖入图片 → 落到 <文档名>.assets/，返回相对路径
 ipcMain.handle('asset.save', (e, docPath, fileName, bytes) => {
   try {
+    if (!pathOK(winOf(e), docPath)) throw new Error('文档路径不在已打开的目录内');
     const dir = docPath.replace(/\.[^.\\]+$/, '') + '.assets';
     fs.mkdirSync(dir, { recursive: true });
     const safe = String(fileName || 'img').replace(/[^\w.\-一-龥]/g, '_');
@@ -533,6 +579,9 @@ function rememberMtime(p, winId) {
 
 ipcMain.handle('file.save', (e, p, content) => {
   try {
+    if (!MD_EXT.includes(path.extname(p).toLowerCase()) || !pathOK(winOf(e), p)) {
+      return { ok: false, error: '路径不在已打开的目录内' };
+    }
     fs.mkdirSync(path.dirname(p), { recursive: true });
     // 保存前先把旧磁盘内容留一份快照，这样能回到"本次修改前"
     try { histSnap(p, fs.readFileSync(p, 'utf8')); } catch (e) {}
@@ -555,7 +604,10 @@ async function relocateFileImages(dstPath, md) {
     const p = decodeURIComponent(raw);
     if (map.has(p)) return;
     map.set(p, null);
+    // 只搬系统临时目录下的文件（pandoc --extract-media 产物）——
+    // 否则恶意文档里 ![](file:///C:/key) 会在另存为时把本机文件拷进 .assets
     const n = ++i;
+    if (!path.normalize(p).toLowerCase().startsWith(os.tmpdir().toLowerCase())) return;
     jobs.push((async () => {
       try {
         const buf = fs.readFileSync(p);
@@ -580,6 +632,7 @@ ipcMain.handle('file.saveAs', async (e, content, defaultPath) => {
   });
   if (r.canceled || !r.filePath) return null;
   try {
+    allowFile(winOf(e), r.filePath); // 对话框结果 = 用户确认过的目录
     content = await relocateFileImages(r.filePath, content);
     fs.writeFileSync(r.filePath, content, 'utf8');
     rememberMtime(r.filePath, winOf(e).id);
@@ -1011,6 +1064,12 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     app.setAppUserModelId('blue.editor');
+    // 「加载远程图片」开关：关掉时拦渲染进程的一切 http(s) 图片请求
+    // （只挡 image 资源类型，不影响主进程的更新检查等其他网络）
+    session.defaultSession.webRequest.onBeforeRequest(
+      { urls: ['http://*/*', 'https://*/*'] },
+      (d, cb) => cb({ cancel: setting.get('remoteImg') === false && d.resourceType === 'image' })
+    );
     initAutoUpdater();
     detectPandoc();
     const w = createWindow();

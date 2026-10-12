@@ -878,6 +878,11 @@ bridge.onMenuAction(async (action, payload) => {
       await bridge.invoke('setting.put', 'toolbar', !!payload);
       break;
     }
+    case 'view:remoteImg': {
+      // 拦截在主进程 webRequest 层做；这里只管持久化，不主动刷新已加载的图
+      await bridge.invoke('setting.put', 'remoteImg', !!payload);
+      break;
+    }
     case 'edit:find': showFind(); break;
     case 'draft:restore': {
       // 启动时主进程推来的未保存草稿（按文档各一份）

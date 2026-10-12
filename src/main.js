@@ -69,7 +69,7 @@ const wins = new Set();  // 全部窗口（每文档一窗口）
 const winOf = (e) => BrowserWindow.fromWebContents(e.sender);
 
 // 旧值 dark→graphite、classic→nordic；新值为 zen/graphite/swiss/nordic
-const normTheme = (t) => t === 'dark' ? 'graphite' : (t === 'classic' ? 'nordic' : t);
+const normTheme = (t) => t === 'dark' ? 'graphite' : (['zen', 'graphite', 'swiss', 'nordic'].includes(t) ? t : 'nordic');
 const SKIN_BG = { zen: '#f6f3eb', graphite: '#121316', swiss: '#fbfbfc', nordic: '#ffffff' };
 
 function createWindow() {

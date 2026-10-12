@@ -9,7 +9,7 @@ let draftTimer = null;
 let draftId = null; // 未命名文档的草稿身份（窗口无关，恢复后可续用）
 let docEol = 'LF';   // 原文件的换行风格，保存时还原（否则一次保存全文件换行 diff）
 let docEncoding = 'utf8'; // GBK 打开的文件保存时转 UTF-8 并提示
-let theme = 'classic';
+let theme = 'nordic';
 let mode = 'wysiwyg';
 
 const basename = (p) => p ? p.replace(/\\/g, '/').split('/').pop() : null;

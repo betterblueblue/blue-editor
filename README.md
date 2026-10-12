@@ -14,7 +14,7 @@
 
 - **干净排版**：默认无工具栏、无块级标记（H1/</>/ToC 全部隐藏），
   视图菜单可唤回工具栏
-- **所见即所得**编辑（Vditor wysiwyg），另有即时渲染模式
+- **排版模式**编辑（所见即所得，类 Word），另有**源码模式**（Markdown 符号可见、即时渲染）
 - **数学公式、图表**（KaTeX / mermaid / echarts / markmap / graphviz / abc 乐谱等，
   全部本地渲染，plantuml 等外发服务已被 CSP 拦掉）
 - **左侧栏**

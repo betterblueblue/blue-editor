@@ -616,7 +616,7 @@ function createEditor(initialValue) {
     cdn: '../../node_modules/vditor',
     height: '100%',
     mode,
-    theme,
+    theme: theme === 'graphite' ? 'dark' : 'classic',
     value: initialValue,
     cache: { enable: false },
     toolbar: [
@@ -635,9 +635,9 @@ function createEditor(initialValue) {
     input: () => { markDirty(); scheduleOutline(); },
     blur: () => { if (dirty) flushDraft(); },
     after: () => {
-      // 深色主题：皮肤由构造参数带上，内容/代码高亮主题要在这里补一次
+      // 深色皮肤：皮肤由构造参数带上，内容/代码高亮主题要在这里补一次
       // （包括启动和模式切换重建，两处都走到）
-      if (theme === 'dark') {
+      if (theme === 'graphite') {
         try { vditor.setTheme('dark', 'dark', 'github-dark'); } catch (e) {}
       }
       // link.click 选项在合并时被丢弃，只能在 inner 就绪后手动挂上
@@ -759,17 +759,22 @@ function setMode(m) {
   vditor = createEditor(content);
 }
 
+// 皮肤：zen/graphite/swiss/nordic；旧值 dark→graphite、classic→nordic
+const SKINS = ['zen', 'graphite', 'swiss', 'nordic'];
+const normSkin = (t) => t === 'dark' ? 'graphite' : (SKINS.includes(t) ? t : 'nordic');
+
 async function setTheme(t) {
-  theme = t;
-  document.body.classList.toggle('dark', t === 'dark');
-  // 三参：编辑器皮肤 + 内容主题 + 代码高亮主题（之前只传了编辑器皮肤，
-  // 深色下代码块/正文样式没跟着换 → 白块）
-  if (t === 'dark') {
+  theme = normSkin(t);
+  document.body.dataset.skin = theme;
+  document.body.classList.toggle('dark', theme === 'graphite');
+  // 三参：编辑器皮肤 + 内容主题 + 代码高亮主题；
+  // graphite 复用 Vditor 深色底，其余走 classic/light
+  if (theme === 'graphite') {
     vditor.setTheme('dark', 'dark', 'github-dark');
   } else {
     vditor.setTheme('classic', 'light', 'github');
   }
-  await bridge.invoke('setting.put', 'theme', t);
+  await bridge.invoke('setting.put', 'theme', theme);
 }
 
 bridge.onMenuAction(async (action, payload) => {
@@ -1150,8 +1155,9 @@ async function buildHTMLDoc() {
 }
 
 (async () => {
-  theme = (await bridge.invoke('setting.get', 'theme')) || 'classic';
-  document.body.classList.toggle('dark', theme === 'dark');
+  theme = normSkin(await bridge.invoke('setting.get', 'theme'));
+  document.body.dataset.skin = theme;
+  document.body.classList.toggle('dark', theme === 'graphite');
   if ((await bridge.invoke('setting.get', 'sidebar')) === false) {
     $sidebar().classList.add('hidden');
   }
@@ -1197,7 +1203,7 @@ window.__ed = {
   get dirty() { return dirty; },
   save, saveAs, setMode,
   // 测试句柄
-  buildHTMLDoc, buildWechatHTML, fixTypography, undoTypography, openHistory, openWechatPicker, flushDraft, extractHeads, moveSection, renderTree, expandedDirs, dirCache,
+  buildHTMLDoc, buildWechatHTML, fixTypography, undoTypography, openHistory, openWechatPicker, flushDraft, extractHeads, moveSection, renderTree, expandedDirs, dirCache, setTheme,
   get outlineHeads() { return outlineHeads; }
 };
 

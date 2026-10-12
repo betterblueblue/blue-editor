@@ -1,0 +1,271 @@
+/* ==========================================================================
+   编辑器皮肤（4 套）· 设计来源 preview-ui.html
+   机制：body[data-skin] 覆写 --ui-* 外壳变量（style.css）+ .vditor 变量 +
+   .vditor-reset 内容装饰。加载顺序在 style.css 之后。
+   graphite 同时带 body.dark（深色变量默认值），此处只写皮肤差异。
+   ========================================================================== */
+
+/* ========== 和风素纸 Wabi-Sabi：衬线 + 宣纸底 + 朱砂 ========== */
+body[data-skin="zen"] {
+  --font-body: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, serif;
+  --font-mono: "Courier New", "Songti SC", serif;
+  --ui-accent: #b83b26;
+  --ui-soft: #e3dcce;
+  --ui-sel: #e3dcce;
+  --ui-sel-text: #b83b26;
+  --ui-sel-hover: rgba(180, 160, 130, 0.16);
+  --ui-panel: #eee9dc;
+  --ui-card: #fbf9f4;
+  --ui-hover: rgba(180, 160, 130, 0.16);
+  --ui-border: #e4decb;
+  --ui-border2: #cfc6b0;
+  --ui-text: #242924;
+  --ui-text2: #6b6e67;
+  --ui-icon: #6b6e67;
+  --ui-empty: #9ea098;
+  --ui-btn: #f6f3eb;
+  font-family: var(--font-body);
+  background-color: #f6f3eb;
+  background-image: radial-gradient(#dfd8c4 0.75px, transparent 0.75px);
+  background-size: 16px 16px;
+}
+body[data-skin="zen"] #vditor { background: #f6f3eb; }
+body[data-skin="zen"] .vditor-reset { color: #242924; font-family: var(--font-body); }
+body[data-skin="zen"] .vditor {
+  --border-color: #e4decb;
+  --second-color: rgba(107, 110, 103, 0.36);
+  --panel-background-color: #fbf9f4;
+  --toolbar-background-color: #eee9dc;
+  --toolbar-icon-color: #6b6e67;
+  --toolbar-icon-hover-color: #b83b26;
+  --textarea-background-color: #f6f3eb;
+  --textarea-text-color: #242924;
+  --heading-border-color: #cfc6b0;
+  --blockquote-color: #6b6e67;
+  --ir-heading-color: #b83b26;
+  --ir-bi-color: #8c4a2f;
+  --ir-link-color: #7a4a1d;
+}
+body[data-skin="zen"] .vditor-reset { font-family: var(--font-body); line-height: 1.85; }
+body[data-skin="zen"] .vditor-reset h1, body[data-skin="zen"] .vditor-reset h2 {
+  border-bottom: 1px dashed #cfc6b0;
+}
+body[data-skin="zen"] .vditor-reset blockquote {
+  background: #efe9dc;
+  border-left: 3.5px solid #b83b26;
+  color: #6b6e67;
+}
+body[data-skin="zen"] .vditor-reset code:not(.hljs):not(.highlight-chroma) {
+  font-family: var(--font-mono);
+  background: #eae3d2;
+}
+body[data-skin="zen"] .vditor-reset pre { background: #eae3d2; font-family: var(--font-mono); }
+body[data-skin="zen"] .vditor-reset table td, body[data-skin="zen"] .vditor-reset table th { border-color: #e4decb; }
+body[data-skin="zen"] .vditor-reset a { color: #b83b26; }
+body[data-skin="zen"] #dir-list li.current {
+  border-left: 3px solid #b83b26;
+  padding-left: 7px;
+}
+body[data-skin="zen"] #dir-list li, body[data-skin="zen"] #outline-list li { border-radius: 2px; }
+
+/* ========== 石墨暗黑 Graphite：哑光灰 + 知性蓝 ========== */
+body[data-skin="graphite"] {
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft Yahei", sans-serif;
+  --font-mono: "JetBrains Mono", Consolas, "Courier New", monospace;
+  --ui-accent: #4f8cf6;
+  --ui-soft: rgba(255, 255, 255, 0.08);
+  --ui-sel: rgba(255, 255, 255, 0.08);
+  --ui-sel-text: #ffffff;
+  --ui-sel-hover: rgba(255, 255, 255, 0.05);
+  --ui-panel: #16181d;
+  --ui-card: #1c1e24;
+  --ui-hover: rgba(255, 255, 255, 0.05);
+  --ui-border: #23262f;
+  --ui-border2: #2f3440;
+  --ui-text: #ededef;
+  --ui-text2: #8b909a;
+  --ui-icon: #8b909a;
+  --ui-empty: #525762;
+  --ui-btn: #1c1e24;
+  font-family: var(--font-body);
+  background-color: #121316;
+}
+body[data-skin="graphite"] #vditor { background: #121316; }
+body[data-skin="graphite"] .vditor-reset { color: #ededef; font-family: var(--font-body); }
+body[data-skin="graphite"] .vditor {
+  --border-color: #23262f;
+  --second-color: rgba(255, 255, 255, 0.12);
+  --panel-background-color: #1c1e24;
+  --panel-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  --toolbar-background-color: #16181d;
+  --toolbar-icon-color: #8b909a;
+  --toolbar-icon-hover-color: #4f8cf6;
+  --textarea-background-color: #121316;
+  --textarea-text-color: #ededef;
+  --heading-border-color: #23262f;
+  --blockquote-color: #8b909a;
+  --ir-heading-color: #7ba7f9;
+  --ir-title-color: #525762;
+  --ir-bi-color: #7ba7f9;
+  --ir-link-color: #6ea8ff;
+  --ir-bracket-color: #8b909a;
+  --ir-paren-color: #8b909a;
+}
+body[data-skin="graphite"] .vditor-reset blockquote {
+  background: #17181e;
+  border-left: 3px solid #4f8cf6;
+}
+body[data-skin="graphite"] .vditor-reset code:not(.hljs):not(.highlight-chroma) {
+  font-family: var(--font-mono);
+  background: #18191f;
+}
+body[data-skin="graphite"] .vditor-reset pre { font-family: var(--font-mono); }
+body[data-skin="graphite"] .vditor-reset a { color: #6ea8ff; }
+body[data-skin="graphite"] #dir-list li.current,
+body[data-skin="graphite"] #outline-list li { border-radius: 6px; }
+body[data-skin="graphite"] #dir-list li.current { background: rgba(255, 255, 255, 0.08); }
+
+/* ========== 瑞士包豪斯 Swiss：硬黑框 + 克莱因蓝 ========== */
+body[data-skin="swiss"] {
+  --font-body: "Helvetica Neue", "Helvetica", "Arial", "PingFang SC", "Microsoft Yahei", sans-serif;
+  --font-mono: "SF Mono", Consolas, monospace;
+  --ui-accent: #0038ff;
+  --ui-soft: #f5f02c;
+  --ui-sel: #0038ff;
+  --ui-sel-text: #ffffff;
+  --ui-sel-hover: #e2e5eb;
+  --ui-panel: #f0f2f5;
+  --ui-card: #ffffff;
+  --ui-hover: #e2e5eb;
+  --ui-border: #d0d4dc;
+  --ui-border2: #000000;
+  --ui-text: #000000;
+  --ui-text2: #4a5160;
+  --ui-icon: #4a5160;
+  --ui-empty: #838c9c;
+  --ui-btn: #f5f6f9;
+  font-family: var(--font-body);
+  background-color: #fbfbfc;
+}
+body[data-skin="swiss"] #vditor { background: #ffffff; }
+body[data-skin="swiss"] .vditor-reset { color: #000000; font-family: var(--font-body); }
+body[data-skin="swiss"] .vditor {
+  --border-color: #000000;
+  --second-color: rgba(0, 0, 0, 0.3);
+  --panel-background-color: #ffffff;
+  --panel-shadow: 4px 4px 0 #000;
+  --toolbar-background-color: #f0f2f5;
+  --toolbar-icon-color: #000000;
+  --toolbar-icon-hover-color: #0038ff;
+  --textarea-background-color: #ffffff;
+  --textarea-text-color: #000000;
+  --heading-border-color: #000000;
+  --blockquote-color: #4a5160;
+  --ir-heading-color: #0038ff;
+  --ir-bi-color: #0038ff;
+  --ir-link-color: #0038ff;
+  --ir-bracket-color: #4a5160;
+  --ir-paren-color: #4a5160;
+}
+body[data-skin="swiss"] .vditor-reset { font-family: var(--font-body); }
+body[data-skin="swiss"] .vditor-reset h1 {
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  text-transform: uppercase;
+  border-bottom: 3px solid #000;
+}
+body[data-skin="swiss"] .vditor-reset h2 { font-weight: 900; }
+body[data-skin="swiss"] .vditor-reset blockquote {
+  background: #f8f9fc;
+  border: 2px solid #000;
+  box-shadow: 4px 4px 0 #000;
+  padding: 16px 20px;
+}
+body[data-skin="swiss"] .vditor-reset code:not(.hljs):not(.highlight-chroma) {
+  font-family: var(--font-mono);
+  background: #f5f6f9;
+}
+body[data-skin="swiss"] .vditor-reset pre {
+  font-family: var(--font-mono);
+  border: 2px solid #000;
+  box-shadow: 4px 4px 0 #000;
+}
+body[data-skin="swiss"] .vditor-reset table { border: 2px solid #000; box-shadow: 4px 4px 0 #000; }
+body[data-skin="swiss"] .vditor-reset table td, body[data-skin="swiss"] .vditor-reset table th { border-color: #000; }
+body[data-skin="swiss"] .vditor-reset a { color: #0038ff; }
+body[data-skin="swiss"] #dir-list li.current {
+  background: #0038ff;
+  color: #ffffff;
+  font-weight: 900;
+}
+body[data-skin="swiss"] #sidebar-tabs .tab.active {
+  box-shadow: none;
+  background: #000;
+  color: #fff;
+}
+body[data-skin="swiss"] #findbar, body[data-skin="swiss"] #ctxmenu,
+body[data-skin="swiss"] #inputdlg-box, body[data-skin="swiss"] #histdlg-box,
+body[data-skin="swiss"] #wcdlg-box {
+  border-radius: 0;
+  border: 2px solid #000;
+  box-shadow: 4px 4px 0 #000;
+}
+
+/* ========== 北欧轻简 Nordic：大留白 + 皇家靛蓝 ========== */
+body[data-skin="nordic"] {
+  --font-body: -apple-system, BlinkMacSystemFont, "Inter", "PingFang SC", "Segoe UI", "Microsoft Yahei", sans-serif;
+  --font-mono: "SF Mono", Menlo, Consolas, monospace;
+  --ui-accent: #3b5bf5;
+  --ui-soft: #eef2ff;
+  --ui-sel: #eef2ff;
+  --ui-sel-text: #3b5bf5;
+  --ui-sel-hover: #eef2ff;
+  --ui-panel: #f8f9fb;
+  --ui-card: #ffffff;
+  --ui-hover: rgba(0, 0, 0, 0.035);
+  --ui-border: #f0f2f5;
+  --ui-border2: #e4e7ec;
+  --ui-text: #181d27;
+  --ui-text2: #535862;
+  --ui-icon: #94969c;
+  --ui-empty: #94969c;
+  --ui-btn: #f8f9fb;
+  font-family: var(--font-body);
+  background-color: #ffffff;
+}
+body[data-skin="nordic"] #vditor { background: #ffffff; }
+body[data-skin="nordic"] .vditor-reset { color: #181d27; font-family: var(--font-body); }
+body[data-skin="nordic"] .vditor {
+  --border-color: #e4e7ec;
+  --second-color: rgba(83, 88, 98, 0.36);
+  --panel-background-color: #ffffff;
+  --panel-shadow: 0 4px 20px rgba(16, 24, 40, 0.05);
+  --toolbar-background-color: #f8f9fb;
+  --toolbar-icon-color: #535862;
+  --toolbar-icon-hover-color: #3b5bf6;
+  --textarea-background-color: #ffffff;
+  --textarea-text-color: #181d27;
+  --heading-border-color: #f0f2f5;
+  --blockquote-color: #535862;
+  --ir-heading-color: #3b5bf5;
+  --ir-bi-color: #3b5bf5;
+  --ir-link-color: #3b5bf5;
+}
+body[data-skin="nordic"] .vditor-reset { font-family: var(--font-body); }
+body[data-skin="nordic"] .vditor-reset blockquote {
+  background: #f8f9fb;
+  border-left: 3px solid #3b5bf5;
+  border-radius: 0 8px 8px 0;
+}
+body[data-skin="nordic"] .vditor-reset code:not(.hljs):not(.highlight-chroma) {
+  font-family: var(--font-mono);
+  background: #f8f9fb;
+}
+body[data-skin="nordic"] .vditor-reset pre { font-family: var(--font-mono); border-radius: 12px; }
+body[data-skin="nordic"] .vditor-reset table td, body[data-skin="nordic"] .vditor-reset table th { border-color: #eaecf0; }
+body[data-skin="nordic"] .vditor-reset a { color: #3b5bf5; }
+body[data-skin="nordic"] #dir-list li, body[data-skin="nordic"] #outline-list li { border-radius: 8px; }
+body[data-skin="nordic"] #dir-list li.current { background: #eef2ff; color: #3b5bf5; }
+body[data-skin="nordic"] #findbar, body[data-skin="nordic"] #ctxmenu,
+body[data-skin="nordic"] #inputdlg-box, body[data-skin="nordic"] #histdlg-box,
+body[data-skin="nordic"] #wcdlg-box { border-radius: 10px; }

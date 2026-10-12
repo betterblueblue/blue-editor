@@ -68,13 +68,17 @@ const wins = new Set();  // 全部窗口（每文档一窗口）
 
 const winOf = (e) => BrowserWindow.fromWebContents(e.sender);
 
+// 旧值 dark→graphite、classic→nordic；新值为 zen/graphite/swiss/nordic
+const normTheme = (t) => t === 'dark' ? 'graphite' : (t === 'classic' ? 'nordic' : t);
+const SKIN_BG = { zen: '#f6f3eb', graphite: '#121316', swiss: '#fbfbfc', nordic: '#ffffff' };
+
 function createWindow() {
   const w = new BrowserWindow({
     width: 1100,
     height: 760,
     minWidth: 500,
     minHeight: 400,
-    backgroundColor: setting.get('theme') === 'dark' ? '#1f1f1f' : '#ffffff',
+    backgroundColor: SKIN_BG[normTheme(setting.get('theme'))] || '#ffffff',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -219,7 +223,16 @@ function buildMenu() {
         { label: '侧边栏', type: 'checkbox', checked: setting.get('sidebar') !== false, click: (i) => send('view:sidebar', i.checked) },
         { label: '工具栏', type: 'checkbox', checked: setting.get('toolbar') === true, click: (i) => send('view:toolbar', i.checked) },
         { label: '加载远程图片', type: 'checkbox', checked: setting.get('remoteImg') !== false, click: (i) => send('view:remoteImg', i.checked) },
-        { label: '深色主题', type: 'checkbox', checked: setting.get('theme') === 'dark', click: (i) => send('view:theme', i.checked ? 'dark' : 'classic') },
+        {
+          label: '主题', submenu: [
+            ['zen', '和风素纸'], ['graphite', '石墨暗黑'],
+            ['swiss', '瑞士包豪斯'], ['nordic', '北欧轻简']
+          ].map(([k, label]) => ({
+            label, type: 'radio',
+            checked: normTheme(setting.get('theme')) === k,
+            click: () => send('view:theme', k)
+          }))
+        },
         { type: 'separator' },
         { role: 'resetZoom', label: '实际大小' },
         { role: 'zoomIn', label: '放大' },

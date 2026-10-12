@@ -886,19 +886,6 @@ ipcMain.handle('find.stop', (e) => {
 });
 
 // ---------- 关闭流程 ----------
-ipcMain.handle('app.confirmClose', async (e) => {
-  const w = winOf(e);
-  const r = await dialog.showMessageBox(w, {
-    type: 'warning',
-    message: '文档有未保存的修改',
-    detail: '关闭前要保存吗？自动草稿仍会保留。',
-    buttons: ['保存并关闭', '不保存', '取消'],
-    defaultId: 0,
-    cancelId: 2
-  });
-  return r.response;
-});
-
 ipcMain.handle('app.closeNow', (e) => {
   const w = winOf(e);
   if (w) { w._allowClose = true; w.close(); }
@@ -973,8 +960,20 @@ ipcMain.handle('pandoc.export', async (e, content, defaultName, forceExt, docPat
 let autoUpdater = null;
 let manualUpdateCheck = false;
 
+// 提示框优先走渲染层的 choiceBox（跟随皮肤）；渲染层不可用才回落原生
 function msgBox(w, opts) {
-  return dialog.showMessageBox(w || win || wins.values().next().value, opts);
+  const target = w || win || wins.values().next().value;
+  const cancelIdx = opts.cancelId != null ? opts.cancelId : (opts.buttons ? opts.buttons.length - 1 : 0);
+  const fallback = () => (target && !target.isDestroyed())
+    ? dialog.showMessageBox(target, opts)
+    : { response: cancelIdx };
+  if (!target || target.webContents.isDestroyed()) return fallback();
+  const text = opts.detail ? `${opts.message}\n${opts.detail}` : opts.message;
+  const btns = opts.buttons || ['确定'];
+  return target.webContents.executeJavaScript(
+    `window.__ed ? __ed.choiceBox(${JSON.stringify(text)}, ${JSON.stringify(btns)}, ${cancelIdx}) : -1`
+  ).then(r => (typeof r === 'number' && r >= 0) ? { response: r } : fallback())
+   .catch(fallback);
 }
 
 function checkUpdates(manual) {

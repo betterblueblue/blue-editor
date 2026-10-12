@@ -306,33 +306,39 @@ function ctxPrompt(placeholder, def) {
 }
 
 // 自定义消息框：原生 alert/confirm 无皮肤样式且同步阻塞 JS，
-// 换成走 --ui-* 变量的弹层，自动跟随皮肤
-function showMsg(text, withCancel) {
+// 换成走 --ui-* 变量的弹层，自动跟随皮肤。返回点击的按钮下标。
+// 主进程也通过 __ed.choiceBox 复用它（更新提示、关闭确认）。
+function choiceBox(text, labels, cancelIdx) {
   return new Promise((resolve) => {
     const dlg = document.getElementById('msgdlg');
-    const ok = document.getElementById('msgdlg-ok');
-    const cancel = document.getElementById('msgdlg-cancel');
+    const btns = dlg.querySelector('.dlg-btns');
+    const cIdx = cancelIdx == null ? labels.length - 1 : cancelIdx;
     document.getElementById('msgdlg-text').textContent = text;
-    cancel.classList.toggle('hidden', !withCancel);
-    dlg.classList.remove('hidden');
     const done = (v) => {
       dlg.classList.add('hidden');
       document.removeEventListener('keydown', onKey, true);
       resolve(v);
     };
+    btns.innerHTML = '';
+    const els = labels.map((label, i) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.onclick = () => done(i);
+      btns.appendChild(b);
+      return b;
+    });
+    dlg.classList.remove('hidden');
     const onKey = (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); done(true); }
-      else if (e.key === 'Escape') { e.stopPropagation(); done(false); }
+      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); done(0); }
+      else if (e.key === 'Escape') { e.stopPropagation(); done(cIdx); }
     };
-    ok.onclick = () => done(true);
-    cancel.onclick = () => done(false);
-    dlg.onclick = (e) => { if (e.target === dlg) done(false); };
+    dlg.onclick = (e) => { if (e.target === dlg) done(cIdx); };
     document.addEventListener('keydown', onKey, true);
-    setTimeout(() => ok.focus(), 0);
+    setTimeout(() => els[0].focus(), 0);
   });
 }
-const showAlert = (t) => showMsg(t, false);
-const confirmBox = (t) => showMsg(t, true);
+const showAlert = (t) => choiceBox(t, ['确定'], 0);
+const confirmBox = async (t) => (await choiceBox(t, ['确定', '取消'], 1)) === 0;
 
 async function ctxNewFile(dir) {
   const name = await ctxPrompt('文件名（含 .md）', '未命名.md');
@@ -932,7 +938,8 @@ bridge.onMenuAction(async (action, payload) => {
     }
     case 'app:closeRequest': {
       if (!dirty) { await bridge.invoke('app.closeNow'); break; }
-      const r = await bridge.invoke('app.confirmClose');
+      const r = await choiceBox('文档有未保存的修改\n关闭前要保存吗？自动草稿仍会保留。',
+        ['保存并关闭', '不保存', '取消'], 2);
       if (r === 0) {          // 保存并关闭
         await save();
         if (!dirty) await bridge.invoke('app.closeNow'); // 保存成功才关
@@ -1232,7 +1239,7 @@ window.__ed = {
   get dirty() { return dirty; },
   save, saveAs, setMode,
   // 测试句柄
-  buildHTMLDoc, buildWechatHTML, fixTypography, undoTypography, openHistory, openWechatPicker, flushDraft, extractHeads, moveSection, renderTree, expandedDirs, dirCache, setTheme, showAlert, confirmBox,
+  buildHTMLDoc, buildWechatHTML, fixTypography, undoTypography, openHistory, openWechatPicker, flushDraft, extractHeads, moveSection, renderTree, expandedDirs, dirCache, setTheme, showAlert, confirmBox, choiceBox,
   get outlineHeads() { return outlineHeads; }
 };
 

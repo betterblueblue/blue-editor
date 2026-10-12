@@ -12,7 +12,7 @@ const ALLOWED_INVOKE = new Set([
   'find', 'find.stop',
   'file.readBase64', 'shell.openExternal',
   'hist.list', 'hist.read', 'hist.snap', 'hist.clear', 'hist.diff',
-  'app.confirmClose', 'app.closeNow',
+  'app.closeNow',
   'pandoc.isValid', 'pandoc.import', 'pandoc.export'
 ]);
 

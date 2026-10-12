@@ -68,7 +68,7 @@ body[data-skin="zen"] #dir-list li.current {
 }
 body[data-skin="zen"] #dir-list li, body[data-skin="zen"] #outline-list li { border-radius: 2px; }
 
-/* ========== 石墨暗黑 Graphite：哑光灰 + 知性蓝 ========== */
+/* ========== 石墨 Graphite：哑光灰 + 知性蓝 ========== */
 body[data-skin="graphite"] {
   --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft Yahei", sans-serif;
   --font-mono: "JetBrains Mono", Consolas, "Courier New", monospace;
@@ -125,7 +125,7 @@ body[data-skin="graphite"] #dir-list li.current,
 body[data-skin="graphite"] #outline-list li { border-radius: 6px; }
 body[data-skin="graphite"] #dir-list li.current { background: rgba(255, 255, 255, 0.08); }
 
-/* ========== 瑞士包豪斯 Swiss：硬黑框 + 克莱因蓝 ========== */
+/* ========== 硬蓝（瑞士包豪斯）Swiss：硬黑框 + 克莱因蓝 ========== */
 body[data-skin="swiss"] {
   --font-body: "Helvetica Neue", "Helvetica", "Arial", "PingFang SC", "Microsoft Yahei", sans-serif;
   --font-mono: "SF Mono", Consolas, monospace;
@@ -211,7 +211,7 @@ body[data-skin="swiss"] #wcdlg-box {
   box-shadow: 4px 4px 0 #000;
 }
 
-/* ========== 北欧轻简 Nordic：大留白 + 皇家靛蓝 ========== */
+/* ========== 北欧 Nordic：大留白 + 皇家靛蓝 ========== */
 body[data-skin="nordic"] {
   --font-body: -apple-system, BlinkMacSystemFont, "Inter", "PingFang SC", "Segoe UI", "Microsoft Yahei", sans-serif;
   --font-mono: "SF Mono", Menlo, Consolas, monospace;

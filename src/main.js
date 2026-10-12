@@ -225,8 +225,8 @@ function buildMenu() {
         { label: '加载远程图片', type: 'checkbox', checked: setting.get('remoteImg') !== false, click: (i) => send('view:remoteImg', i.checked) },
         {
           label: '主题', submenu: [
-            ['zen', '宣墨'], ['graphite', '石墨暗黑'],
-            ['swiss', '瑞士包豪斯'], ['nordic', '北欧轻简']
+            ['zen', '宣墨'], ['graphite', '石墨'],
+            ['swiss', '硬蓝'], ['nordic', '北欧']
           ].map(([k, label]) => ({
             label, type: 'radio',
             checked: normTheme(setting.get('theme')) === k,

@@ -710,6 +710,7 @@ const refreshTitle = () => {
 const markDirty = () => {
   if (!dirty) { dirty = true; refreshTitle(); }
   findIndex = null; // 文本变了，查找索引作废
+  histCurMd = null; // 历史面板缓存的"当前内容"也作废
   clearTimeout(draftTimer);
   draftTimer = setTimeout(flushDraft, 1500);
 };
@@ -1090,9 +1091,11 @@ bridge.onMenuAction(async (action, payload) => {
 
 // ---------- 版本历史面板 ----------
 let histSnaps = [], histSel = null;
+let histCurMd = null; // 历史面板期间缓存"当前内容"md，编辑时作废（markDirty 置空）
 
 async function openHistory() {
   if (!currentPath) { showAlert('未命名文档没有版本历史（保存后开始记录）'); return; }
+  histCurMd = null;
   const r = await bridge.invoke('hist.list', currentPath);
   histSnaps = r.snaps || [];
   document.getElementById('histdlg').classList.remove('hidden');
@@ -1121,7 +1124,8 @@ async function selectHist(ts) {
   const box = document.getElementById('hist-diff');
   const r = await bridge.invoke('hist.read', currentPath, ts);
   if (!r.ok) { box.innerHTML = '<div class="hist-empty">读取快照失败</div>'; return; }
-  const d = await bridge.invoke('hist.diff', r.content, getMd());
+  if (histCurMd === null) histCurMd = getMd(); // 面板打开期间文档没动就只序列化一次
+  const d = await bridge.invoke('hist.diff', r.content, histCurMd);
   box.innerHTML = '';
   const rows = [];
   for (const [op, text] of (d.diffs || [])) {

@@ -9,7 +9,6 @@ const ALLOWED_INVOKE = new Set([
   'asset.save',
   'draft.save', 'draft.clear',
   'export.pdf', 'export.html', 'export.png', 'export.cssBundle',
-  'find', 'find.stop',
   'file.readBase64', 'shell.openExternal',
   'hist.list', 'hist.read', 'hist.snap', 'hist.clear', 'hist.diff',
   'app.closeNow',
@@ -27,6 +26,5 @@ contextBridge.exposeInMainWorld('bridge', {
   pathOf: (f) => { try { return webUtils.getPathForFile(f); } catch (e) { return ''; } },
   onMenuAction: (cb) => ipcRenderer.on('menu:action', (e, m) => cb(m.action, m.payload)),
   onDirChanged: (cb) => ipcRenderer.on('dir:changed', () => cb()),
-  onFindResult: (cb) => ipcRenderer.on('find:result', (e, r) => cb(r)),
   onFileChanged: (cb) => ipcRenderer.on('file:changed', (e, p) => cb(p))
 });

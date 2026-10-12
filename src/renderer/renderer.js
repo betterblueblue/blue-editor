@@ -519,8 +519,78 @@ async function setSidebar(visible) {
 }
 
 // ---------- 查找/替换 ----------
+// 自研查找：Chromium findInPage 在大 DOM 上同步扫描渲染主线程
+// （175KB 文档 wysiwyg ~4.8 万节点，每跳卡 ~3s），改成自己索引文本节点：
+// TreeWalker 收集可见文本节点 → 拼接全文 → indexOf 匹配 → Range + scrollIntoView 定位
 const $find = (id) => document.getElementById(id);
 let findHidSidebar = false; // 查找期间临时藏侧栏，限定搜索范围在编辑区
+let findIndex = null;     // {term, nodes:[{node,s,e}], hits:[{s,e}], cur}
+
+function buildFindIndex(term) {
+  const nodes = [];
+  let text = '';
+  const root = document.querySelector('.vditor-reset');
+  if (root) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => {
+        if (!n.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+        const el = n.parentElement;
+        // 跳过 display:none 的节点（Vditor 会藏起未激活块的 Markdown 标记）
+        if (el && !el.offsetWidth && !el.offsetHeight) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      nodes.push({ node: n, s: text.length, e: text.length + n.nodeValue.length });
+      text += n.nodeValue;
+    }
+  }
+  const low = text.toLowerCase(), q = term.toLowerCase();
+  const hits = [];
+  for (let i = low.indexOf(q); i !== -1; i = low.indexOf(q, i + 1)) {
+    hits.push({ s: i, e: i + q.length });
+  }
+  findIndex = { term, nodes, hits, cur: -1 };
+}
+
+// 全局偏移 → 所属文本节点（二分）
+function findNodeAt(pos) {
+  const ns = findIndex.nodes;
+  let lo = 0, hi = ns.length - 1, ans = 0;
+  while (lo <= hi) {
+    const m = (lo + hi) >> 1;
+    if (ns[m].s <= pos) { ans = m; lo = m + 1; } else hi = m - 1;
+  }
+  return ns[ans];
+}
+
+function updateFindCount() {
+  const i = findIndex;
+  $find('find-count').textContent = i && i.hits.length ? `${i.cur + 1}/${i.hits.length}` : '0/0';
+}
+
+function jumpFind(dir) {
+  const term = $find('find-input').value;
+  if (!term) { findIndex = null; updateFindCount(); return; }
+  // term 变了、没建过、或文档被重建过（旧节点已脱离 DOM）都要重扫
+  if (!findIndex || findIndex.term !== term || !findIndex.nodes.length || !findIndex.nodes[0].node.isConnected) {
+    buildFindIndex(term);
+  }
+  const hits = findIndex.hits;
+  if (!hits.length) { findIndex.cur = -1; updateFindCount(); return; }
+  findIndex.cur = ((findIndex.cur + dir) % hits.length + hits.length) % hits.length;
+  const hit = hits[findIndex.cur];
+  const a = findNodeAt(hit.s), b = findNodeAt(hit.e - 1);
+  const range = document.createRange();
+  range.setStart(a.node, hit.s - a.s);
+  range.setEnd(b.node, hit.e - b.s);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  const el = a.node.parentElement;
+  if (el) el.scrollIntoView({ block: 'center' });
+  updateFindCount();
+}
 
 function showFind() {
   const sb = $sidebar();
@@ -529,6 +599,7 @@ function showFind() {
   $find('findbar').classList.remove('hidden');
   $find('find-input').focus();
   $find('find-input').select();
+  jumpFind(1);
 }
 
 function hideFind() {
@@ -537,19 +608,24 @@ function hideFind() {
     findHidSidebar = false;
   }
   $find('findbar').classList.add('hidden');
-  bridge.invoke('find.stop');
+  findIndex = null;
+  getSelection().removeAllRanges();
   vditor && vditor.focus();
 }
 
 function initFindbar() {
   const input = $find('find-input');
-  input.oninput = () => bridge.invoke('find', input.value, true, false);
+  let debounce;
+  input.oninput = () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(() => { findIndex = null; jumpFind(1); }, 150);
+  };
   input.onkeydown = (e) => {
-    if (e.key === 'Enter') bridge.invoke('find', input.value, !e.shiftKey, true);
+    if (e.key === 'Enter') jumpFind(e.shiftKey ? -1 : 1);
     if (e.key === 'Escape') hideFind();
   };
-  $find('find-prev').onclick = () => bridge.invoke('find', input.value, false, true);
-  $find('find-next').onclick = () => bridge.invoke('find', input.value, true, true);
+  $find('find-prev').onclick = () => jumpFind(-1);
+  $find('find-next').onclick = () => jumpFind(1);
   $find('find-close').onclick = hideFind;
   $find('replace-input').onkeydown = (e) => {
     if (e.key === 'Enter' || e.key === 'Escape') { if (e.key === 'Escape') hideFind(); }
@@ -564,9 +640,6 @@ function initFindbar() {
     vditor.setValue(md.split(from).join(to));
     markDirty();
   };
-  bridge.onFindResult((r) => {
-    $find('find-count').textContent = r.matches ? `${r.active}/${r.matches}` : '0/0';
-  });
 }
 
 // ---------- 外部修改 ----------
@@ -604,6 +677,7 @@ const refreshTitle = () => {
 
 const markDirty = () => {
   if (!dirty) { dirty = true; refreshTitle(); }
+  findIndex = null; // 文本变了，查找索引作废
   clearTimeout(draftTimer);
   draftTimer = setTimeout(flushDraft, 1500);
 };
@@ -1243,7 +1317,7 @@ window.__ed = {
   get dirty() { return dirty; },
   save, saveAs, setMode,
   // 测试句柄
-  buildHTMLDoc, buildWechatHTML, fixTypography, undoTypography, openHistory, openWechatPicker, flushDraft, extractHeads, moveSection, renderTree, expandedDirs, dirCache, setTheme, showAlert, confirmBox, choiceBox,
+  buildHTMLDoc, buildWechatHTML, fixTypography, undoTypography, openHistory, openWechatPicker, flushDraft, extractHeads, moveSection, renderTree, expandedDirs, dirCache, setTheme, showAlert, confirmBox, choiceBox, jumpFind,
   get outlineHeads() { return outlineHeads; }
 };
 

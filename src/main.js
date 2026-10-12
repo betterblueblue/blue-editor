@@ -104,11 +104,6 @@ function createWindow() {
       w.webContents.send('menu:action', { action: 'app:closeRequest' });
     }
   });
-  w.webContents.on('found-in-page', (e, r) => {
-    if (!w.isDestroyed()) {
-      w.webContents.send('find:result', { matches: r.matches, active: r.activeMatchOrdinal });
-    }
-  });
   // 导航/新窗口拦截：一切导航都拦（loadFile 不走这个事件，页面内跳转/拖拽文件
   // 掉落都会触发）；http(s)/mailto 转系统浏览器，其余一律拒绝
   w.webContents.on('will-navigate', (e, url) => {
@@ -869,20 +864,6 @@ ipcMain.handle('hist.diff', (e, a, b) => {
   const diffs = dmp.diff_main(chars1, chars2, false);
   dmp.diff_charsToLines_(diffs, lineArray);
   return { ok: true, diffs };
-});
-
-// ---------- 查找 ----------
-ipcMain.handle('find', (e, text, forward, findNext) => {
-  const w = winOf(e);
-  if (!text) {
-    w.webContents.stopFindInPage('clearSelection');
-    return -1;
-  }
-  return w.webContents.findInPage(text, { forward: forward !== false, findNext: !!findNext });
-});
-
-ipcMain.handle('find.stop', (e) => {
-  winOf(e).webContents.stopFindInPage('clearSelection');
 });
 
 // ---------- 关闭流程 ----------

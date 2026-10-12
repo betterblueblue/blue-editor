@@ -4,7 +4,61 @@ html, body {
   overflow: hidden;
 }
 
-/* 应用外壳配色变量：默认浅色；#app {
+/* 应用外壳配色变量：默认浅色；body.dark 提供深色默认；
+   body[data-skin]（themes.css）在此基础上覆写成具体皮肤 */
+:root {
+  --ui-accent: #2e7ec7;
+  --ui-soft: #d6e6f5;
+  --ui-sel: #e0ebff;
+  --ui-sel-text: #1a56db;
+  --ui-sel-hover: #f0f5ff;
+  --ui-panel: #fafbfc;
+  --ui-card: #fff;
+  --ui-hover: #eaecef;
+  --ui-border: #e1e4e8;
+  --ui-border2: #d1d5da;
+  --ui-text: #24292e;
+  --ui-text2: #586069;
+  --ui-icon: #6a737d;
+  --ui-empty: #959da5;
+  --ui-btn: #f6f8fa;
+  --ui-warn-bg: #fff3cd;
+  --ui-warn-border: #ffe69c;
+  --ui-warn-text: #664d03;
+  --ui-warn-btn-border: #b08d2f;
+  --ui-diff-add-bg: #e6ffec;
+  --ui-diff-add: #1a7f37;
+  --ui-diff-del-bg: #ffebe9;
+  --ui-diff-del: #cf222e;
+}
+
+body.dark {
+  --ui-accent: #58a6ff;
+  --ui-soft: #1f3352;
+  --ui-sel: #1f3352;
+  --ui-sel-text: #6ea8ff;
+  --ui-sel-hover: #333a41;
+  --ui-panel: #1f2428;
+  --ui-card: #2a3138;
+  --ui-hover: #2a3138;
+  --ui-border: #333a40;
+  --ui-border2: #444c56;
+  --ui-text: #d1d5da;
+  --ui-text2: #959da5;
+  --ui-icon: #959da5;
+  --ui-empty: #6a737d;
+  --ui-btn: #1f2428;
+  --ui-warn-bg: #3d3015;
+  --ui-warn-border: #6b5a1e;
+  --ui-warn-text: #e9d79b;
+  --ui-warn-btn-border: #6b5a1e;
+  --ui-diff-add-bg: #12261e;
+  --ui-diff-add: #3fb950;
+  --ui-diff-del-bg: #32191d;
+  --ui-diff-del: #f85149;
+}
+
+#app {
   display: flex;
   height: 100%;
 }

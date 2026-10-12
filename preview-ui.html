@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="zen">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blue Editor — 四套高质感设计语言实验室</title>
+  <style>
+    /* ========== 全局基础重置 ========== */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+      transition: background 0.25s ease, color 0.25s ease;
+    }
+
+    /* =========================================================================
+       风格 1：🌿 东方和风素纸 (Wabi-Sabi Paper & Ink)
+       保留传统东方文人案头书卷感：思源宋体/衬线、宣纸微点阵底纹、朱砂印泥红、藏书印章
+       ========================================================================= */
+    html[data-theme="zen"] {
+      --font-body: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, serif;
+      --font-mono: "Courier New", "Songti SC", serif;
+      --bg-page: #f6f3eb;
+      --bg-sidebar: #eee9dc;
+      --bg-editor: #f6f3eb;
+      --bg-card: #fbf9f4;
+      --bg-hover: rgba(180, 160, 130, 0.16);
+      --bg-active: #e3dcce;
+      --border-subtle: #e4decb;
+      --border-strong: #cfc6b0;
+      --text-main: #242924;
+      --text-muted: #6b6e67;
+      --text-light: #9ea098;
+      --primary: #b83b26; /* 朱砂红 */
+      --primary-soft: rgba(184, 59, 38, 0.08);
+      --code-bg: #eae3d2;
+      --quote-bg: #efe9dc;
+      --quote-border: #b83b26;
+      --radius-ui: 2px;
+      --box-shadow: 0 4px 16px rgba(80, 70, 50, 0.06);
+      --titlebar-border: #ddd5c0;
+    }
+    html[data-theme="zen"] body {
+      background-color: var(--bg-page);
+      background-image: radial-gradient(#dfd8c4 0.75px, transparent 0.75px);
+      background-size: 16px 16px;
+    }
+    html[data-theme="zen"] .art-title {
+      font-family: var(--font-body);
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      border-bottom: 1px dashed var(--border-strong);
+      padding-bottom: 18px;
+    }
+    html[data-theme="zen"] .art-title::before { content: '「'; color: var(--primary); margin-right: 2px; }
+    html[data-theme="zen"] .art-title::after { content: '」'; color: var(--primary); margin-left: 2px; }
+    html[data-theme="zen"] .stamp-mark {
+      display: inline-block;
+      border: 1.5px solid var(--primary);
+      color: var(--primary);
+      padding: 1px 6px;
+      border-radius: 2px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      transform: rotate(-2deg);
+    }
+    html[data-theme="zen"] .tree-item.active {
+      border-left: 3px solid var(--primary);
+      background: var(--bg-hover);
+      color: var(--primary);
+      font-weight: bold;
+    }
+
+    /* =========================================================================
+       风格 2：💎 工业石墨暗黑 (Graphite Dark / Linear & Zed Style)
+       去掉了浮夸霓虹，转向极度克制、高级、深邃的石墨灰哑光质感与微光微边框
+       ========================================================================= */
+    html[data-theme="graphite"] {
+      --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+      --font-mono: "JetBrains Mono", Consolas, "Courier New", monospace;
+      --bg-page: #121316;
+      --bg-sidebar: #16181d;
+      --bg-editor: #121316;
+      --bg-card: #1c1e24;
+      --bg-hover: rgba(255, 255, 255, 0.05);
+      --bg-active: rgba(255, 255, 255, 0.08);
+      --border-subtle: #23262f;
+      --border-strong: #2f3440;
+      --text-main: #ededef;
+      --text-muted: #8b909a;
+      --text-light: #525762;
+      --primary: #4f8cf6; /* 冷冽知性蓝 */
+      --primary-soft: rgba(79, 140, 246, 0.15);
+      --code-bg: #18191f;
+      --quote-bg: #17181e;
+      --quote-border: #4f8cf6;
+      --radius-ui: 8px;
+      --box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 255, 255, 0.1);
+      --titlebar-border: #23262f;
+    }
+    html[data-theme="graphite"] body {
+      background-color: var(--bg-page);
+    }
+    html[data-theme="graphite"] .art-title {
+      font-family: var(--font-body);
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      color: #ffffff;
+      padding-bottom: 8px;
+    }
+    html[data-theme="graphite"] .art-code-block {
+      border: 1px solid var(--border-subtle);
+      background: #18191f;
+    }
+    html[data-theme="graphite"] .tree-item.active {
+      background: var(--bg-active);
+      color: #ffffff;
+      font-weight: 600;
+      border-radius: 6px;
+    }
+    html[data-theme="graphite"] .sidebar-tabs-capsule {
+      background: #101114;
+      border: 1px solid var(--border-subtle);
+    }
+    html[data-theme="graphite"] .tab-btn.active {
+      background: #23262f;
+      color: #ffffff;
+    }
+
+    /* =========================================================================
+       风格 3：📐 瑞士新包豪斯 (Swiss Neo-Brutalism)
+       高冷画册感、900超粗黑体、2px纯黑实体线框、4px实体硬阴影、克莱因蓝冲撞
+       ========================================================================= */
+    html[data-theme="swiss"] {
+      --font-body: "Helvetica Neue", "Arial Black", "Arial", "PingFang SC", sans-serif;
+      --font-mono: "SF Mono", Consolas, monospace;
+      --bg-page: #fbfbfc;
+      --bg-sidebar: #f0f2f5;
+      --bg-editor: #ffffff;
+      --bg-card: #ffffff;
+      --bg-hover: #e2e5eb;
+      --bg-active: #f5f02c; /* 荧光黄 */
+      --border-subtle: #d0d4dc;
+      --border-strong: #000000;
+      --text-main: #000000;
+      --text-muted: #4a5160;
+      --text-light: #838c9c;
+      --primary: #0038ff; /* 克莱因蓝 */
+      --primary-soft: rgba(0, 56, 255, 0.1);
+      --code-bg: #f5f6f9;
+      --quote-bg: #f8f9fc;
+      --quote-border: #000000;
+      --radius-ui: 0px;
+      --box-shadow: 4px 4px 0px #000000;
+      --titlebar-border: #000000;
+    }
+    html[data-theme="swiss"] .art-title {
+      font-size: 38px;
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      text-transform: uppercase;
+      line-height: 1.1;
+      border-bottom: 3px solid #000;
+      padding-bottom: 12px;
+    }
+    html[data-theme="swiss"] .tree-item.active {
+      background: #0038ff;
+      color: #ffffff;
+      font-weight: 900;
+    }
+    html[data-theme="swiss"] .sidebar-tabs-capsule {
+      border: 2px solid #000;
+      background: #fff;
+      box-shadow: 2px 2px 0px #000;
+    }
+    html[data-theme="swiss"] .tab-btn.active {
+      background: #000;
+      color: #fff;
+    }
+    html[data-theme="swiss"] .art-code-block,
+    html[data-theme="swiss"] blockquote.art-quote,
+    html[data-theme="swiss"] .art-table,
+    html[data-theme="swiss"] .status-pill-box {
+      border: 2px solid #000;
+      box-shadow: 4px 4px 0px #000;
+    }
+
+    /* =========================================================================
+       风格 4：✨ 现代北欧轻简 (Nordic Clean / Craft & Notion Hybrid)
+       全新加入！纯净白纸、无界大留白、超优雅现代无衬线、极微环境光阴影、圆润胶囊
+       ========================================================================= */
+    html[data-theme="nordic"] {
+      --font-body: -apple-system, BlinkMacSystemFont, "Inter", "PingFang SC", "Segoe UI", sans-serif;
+      --font-mono: "SF Mono", Menlo, Consolas, monospace;
+      --bg-page: #ffffff;
+      --bg-sidebar: #f8f9fb;
+      --bg-editor: #ffffff;
+      --bg-card: #ffffff;
+      --bg-hover: rgba(0, 0, 0, 0.035);
+      --bg-active: #eef2ff;
+      --border-subtle: #f0f2f5;
+      --border-strong: #e4e7ec;
+      --text-main: #181d27;
+      --text-muted: #535862;
+      --text-light: #94969c;
+      --primary: #3b5bf5; /* 优雅皇家靛蓝 */
+      --primary-soft: #eef2ff;
+      --code-bg: #f8f9fb;
+      --quote-bg: #f8f9fb;
+      --quote-border: #3b5bf5;
+      --radius-ui: 10px;
+      --box-shadow: 0 4px 20px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.03);
+      --titlebar-border: #f0f2f5;
+    }
+    html[data-theme="nordic"] body {
+      background-color: #ffffff;
+    }
+    html[data-theme="nordic"] .art-title {
+      font-size: 36px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1.25;
+      color: #181d27;
+      padding-bottom: 6px;
+    }
+    html[data-theme="nordic"] .art-code-block {
+      border: 1px solid #eaecf0;
+      border-radius: 12px;
+    }
+    html[data-theme="nordic"] blockquote.art-quote {
+      border-left: 3px solid #3b5bf5;
+      border-radius: 0 8px 8px 0;
+    }
+    html[data-theme="nordic"] .tree-item.active {
+      background: #eef2ff;
+      color: #3b5bf5;
+      font-weight: 600;
+      border-radius: 8px;
+    }
+    html[data-theme="nordic"] .sidebar-tabs-capsule {
+      background: #f2f4f7;
+      border-radius: 99px;
+      padding: 3px;
+    }
+    html[data-theme="nordic"] .tab-btn {
+      border-radius: 99px;
+    }
+    html[data-theme="nordic"] .tab-btn.active {
+      background: #ffffff;
+      color: #181d27;
+      box-shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
+    }
+    html[data-theme="nordic"] .status-pill-box {
+      border-radius: 99px;
+      border: 1px solid #eaecf0;
+      backdrop-filter: blur(12px);
+      background: rgba(255, 255, 255, 0.88);
+    }
+    html[data-theme="nordic"] #selection-pill {
+      border-radius: 99px;
+      padding: 4px 10px;
+      border: 1px solid #eaecf0;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(16px);
+    }
+
+    /* ========== 顶部实验控制栏 ========== */
+    #demo-header {
+      height: 48px;
+      background: #0f1115;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 13px;
+      z-index: 1000;
+      flex-shrink: 0;
+    }
+    .brand-title {
+      font-weight: 700;
+      font-size: 13.5px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      letter-spacing: 0.5px;
+    }
+    .brand-title span.badge {
+      font-size: 11px;
+      background: rgba(255,255,255,0.12);
+      padding: 2px 8px;
+      border-radius: 99px;
+      color: #93c5fd;
+    }
+    .style-picker {
+      display: flex;
+      gap: 8px;
+    }
+    .style-btn {
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #d1d5db;
+      padding: 5px 13px;
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+    .style-btn:hover {
+      background: rgba(255, 255, 255, 0.16);
+      color: #fff;
+    }
+    .style-btn.active {
+      background: #3b8eed;
+      border-color: #60a5fa;
+      color: #fff;
+      box-shadow: 0 0 16px rgba(59, 142, 237, 0.5);
+    }
+
+    /* ========== 窗口标题栏 ========== */
+    #window-bar {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      background: var(--bg-sidebar);
+      border-bottom: 1px solid var(--titlebar-border);
+      flex-shrink: 0;
+      transition: all 0.25s ease;
+    }
+    .window-dots {
+      display: flex;
+      gap: 8px;
+    }
+    .w-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .w-dot.c1 { background: #ff5f56; }
+    .w-dot.c2 { background: #ffbd2e; }
+    .w-dot.c3 { background: #27c93f; }
+
+    .doc-nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-body);
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .doc-nav .current-doc {
+      color: var(--text-main);
+      font-weight: 700;
+    }
+
+    /* ========== 双栏工作台 ========== */
+    #workspace {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    #sidebar-panel {
+      width: 255px;
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      padding: 12px 10px;
+      transition: all 0.25s ease;
+    }
+    .sidebar-tabs-capsule {
+      display: flex;
+      padding: 3px;
+      background: var(--bg-hover);
+      border-radius: var(--radius-ui);
+      margin-bottom: 14px;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 6px 0;
+      border: none;
+      background: transparent;
+      font-family: var(--font-body);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: var(--radius-ui);
+      transition: all 0.2s ease;
+    }
+    .tab-btn.active {
+      background: var(--bg-card);
+      color: var(--text-main);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+
+    .tree-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-light);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin: 8px 6px 6px;
+    }
+    .tree-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: var(--radius-ui);
+      cursor: pointer;
+      font-family: var(--font-body);
+      font-size: 13px;
+      color: var(--text-main);
+      margin-bottom: 2px;
+      transition: all 0.15s ease;
+    }
+    .tree-item:hover {
+      background: var(--bg-hover);
+    }
+
+    #editor-stage {
+      flex: 1;
+      overflow-y: auto;
+      background: var(--bg-editor);
+      position: relative;
+      transition: all 0.25s ease;
+    }
+    .canvas-content {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 54px 36px 160px;
+      font-family: var(--font-body);
+      color: var(--text-main);
+      line-height: 1.8;
+      font-size: 16px;
+    }
+
+    .meta-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin-bottom: 34px;
+    }
+    .art-h2 {
+      font-size: 22px;
+      font-weight: 700;
+      margin: 38px 0 16px;
+      letter-spacing: -0.01em;
+    }
+    .art-p {
+      margin-bottom: 20px;
+      letter-spacing: 0.01em;
+    }
+
+    blockquote.art-quote {
+      margin: 24px 0;
+      padding: 16px 20px;
+      background: var(--quote-bg);
+      border-left: 3.5px solid var(--quote-border);
+      border-radius: var(--radius-ui);
+      font-size: 15px;
+      color: var(--text-muted);
+    }
+
+    .art-code-block {
+      background: var(--code-bg);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-ui);
+      margin: 24px 0;
+      overflow: hidden;
+      font-family: var(--font-mono);
+      font-size: 13.5px;
+    }
+    .code-top {
+      padding: 8px 16px;
+      background: var(--bg-hover);
+      border-bottom: 1px solid var(--border-subtle);
+      font-size: 11.5px;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+    }
+    .code-inner {
+      padding: 16px;
+      line-height: 1.65;
+      overflow-x: auto;
+    }
+
+    .art-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 26px 0;
+      font-size: 14px;
+    }
+    .art-table th {
+      background: var(--bg-hover);
+      padding: 10px 14px;
+      border: 1px solid var(--border-subtle);
+      text-align: left;
+      font-weight: 700;
+    }
+    .art-table td {
+      padding: 10px 14px;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .status-pill-box {
+      position: fixed;
+      bottom: 24px;
+      right: 32px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      padding: 7px 18px;
+      border-radius: var(--radius-ui);
+      box-shadow: var(--box-shadow);
+      font-family: var(--font-body);
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      color: var(--text-muted);
+      transition: all 0.25s ease;
+    }
+    .status-pill-box strong {
+      color: var(--text-main);
+    }
+
+    #selection-pill {
+      position: absolute;
+      top: 190px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-ui);
+      box-shadow: var(--box-shadow);
+      padding: 4px 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      z-index: 50;
+      transition: all 0.25s ease;
+    }
+    .pill-action {
+      border: none;
+      background: transparent;
+      padding: 4px 8px;
+      cursor: pointer;
+      font-family: var(--font-body);
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--text-main);
+      border-radius: var(--radius-ui);
+    }
+    .pill-action:hover {
+      background: var(--bg-hover);
+      color: var(--primary);
+    }
+
+    /* 代码高亮配色 */
+    .c-kw { color: #f43f5e; font-weight: bold; }
+    .c-fn { color: #3b82f6; }
+    .c-str { color: #10b981; }
+    .c-com { color: var(--text-light); font-style: italic; }
+  </style>
+</head>
+<body>
+
+  <!-- ========== 风格实验台顶部切换 ========== -->
+  <div id="demo-header">
+    <div class="brand-title">
+      <span>BLUE EDITOR</span>
+      <span class="badge">DESIGN SYSTEM EXP</span>
+    </div>
+    <div class="style-picker">
+      <button class="style-btn active" onclick="applyTheme('zen', this)">
+        <span>🌿 东方和风素纸 (Wabi-Sabi)</span>
+      </button>
+      <button class="style-btn" onclick="applyTheme('graphite', this)">
+        <span>💎 工业石墨暗黑 (Graphite Dark)</span>
+      </button>
+      <button class="style-btn" onclick="applyTheme('swiss', this)">
+        <span>📐 瑞士新包豪斯 (Swiss)</span>
+      </button>
+      <button class="style-btn" onclick="applyTheme('nordic', this)">
+        <span>✨ 现代轻简北欧 (Nordic Clean)</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ========== 模拟窗口一体化标题栏 ========== -->
+  <header id="window-bar">
+    <div style="display:flex;align-items:center;gap:16px;">
+      <div class="window-dots">
+        <span class="w-dot c1"></span>
+        <span class="w-dot c2"></span>
+        <span class="w-dot c3"></span>
+      </div>
+      <div class="doc-nav">
+        <span>文库</span>
+        <span>/</span>
+        <span>深度随笔</span>
+        <span>/</span>
+        <span class="current-doc" id="doc-title-text">关于文字排版的呼吸与张力.md</span>
+        <span id="save-status" class="stamp-mark" style="margin-left:6px;">已存盘</span>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--text-muted);font-family:var(--font-body);">
+      <span>快捷键 <kbd style="background:var(--bg-hover);padding:2px 6px;border-radius:4px;">Ctrl+Shift+T</kbd> 中文排版优化</span>
+    </div>
+  </header>
+
+  <!-- ========== 工作台核心 ========== -->
+  <div id="workspace">
+
+    <!-- 侧边栏 -->
+    <aside id="sidebar-panel">
+      <div class="sidebar-tabs-capsule">
+        <button class="tab-btn active">目录</button>
+        <button class="tab-btn">大纲</button>
+      </div>
+
+      <div class="tree-title">文稿列表</div>
+      <div class="tree-item active">
+        <span>📖</span>
+        <span>文字排版的呼吸与张力.md</span>
+      </div>
+      <div class="tree-item">
+        <span>📄</span>
+        <span>2026 年度个人反思.md</span>
+      </div>
+      <div class="tree-item">
+        <span>📄</span>
+        <span>离线桌面工具设计准则.md</span>
+      </div>
+
+      <div class="tree-title" style="margin-top:20px;">大纲导览</div>
+      <div class="tree-item" style="font-size:12.5px;padding-left:16px;">
+        <span>§ 1. 排版是思维的实体化</span>
+      </div>
+      <div class="tree-item" style="font-size:12.5px;padding-left:16px;">
+        <span>§ 2. 标点与空白的韵律</span>
+      </div>
+      <div class="tree-item" style="font-size:12.5px;padding-left:16px;">
+        <span>§ 3. 四套视觉人格的对位</span>
+      </div>
+    </aside>
+
+    <!-- 主编辑区 -->
+    <main id="editor-stage">
+
+      <!-- 悬浮划词格式化气泡 -->
+      <div id="selection-pill">
+        <button class="pill-action">加粗</button>
+        <button class="pill-action">斜体</button>
+        <button class="pill-action">行内代码</button>
+        <button class="pill-action">引用</button>
+        <button class="pill-action" style="color:var(--primary);">划线高亮</button>
+      </div>
+
+      <!-- 画布正文 -->
+      <div class="canvas-content">
+        <h1 class="art-title">关于文字排版的呼吸与张力</h1>
+        
+        <div class="meta-row">
+          <span>著者：BetterBlue</span>
+          <span>•</span>
+          <span>字数：1,840 字</span>
+          <span>•</span>
+          <span>读毕：约 4 分钟</span>
+          <span>•</span>
+          <span style="color:var(--primary);font-weight:600;">所见即所得 (WYSIWYG)</span>
+        </div>
+
+        <p class="art-p">
+          真正具备高级感的界面，绝不只在于更换背景色或堆砌磨砂阴影。文字本身的<b>骨骼、字距、行气</b>以及空间留白，才决定了写作者在面对屏幕时究竟是感到烦躁还是沉浸。
+        </p>
+
+        <blockquote class="art-quote">
+          “字体是思想的衣裳。当排版得当时，文字便拥有了呼吸的声音；读者不会去关注形式本身，却能感知到平静与力量。”
+        </blockquote>
+
+        <h2 class="art-h2">§ 1. 中英文混排与标点的停顿</h2>
+        <p class="art-p">
+          在中文写作环境中，中英文混排的间隙处理与标点符号的全半角转换始终是痛点。Blue Editor 内置的算法能够在保护代码、LaTeX 公式与超链接的前提下，自动施加精准的版面微调：
+        </p>
+
+        <div class="art-code-block">
+          <div class="code-top">
+            <span>TypeScript Typography Engine</span>
+            <span>UTF-8 / CRLF</span>
+          </div>
+          <div class="code-inner">
+<span class="c-kw">export function</span> <span class="c-fn">applyChineseTypography</span>(source: <span class="c-str">string</span>): TypographyResult {
+  <span class="c-com">// 第一步：精准隔离代码块、行内代码与数学公式免受干扰</span>
+  <span class="c-kw">const</span> protectedSlots = <span class="c-fn">stashCodeAndMathBlocks</span>(source);
+  
+  <span class="c-com">// 第二步：在 CJK 汉字与西文字符之间注入优雅的 0.25em 留白</span>
+  <span class="c-kw">const</span> spacedText = source.<span class="c-fn">replace</span>(/([\u4e00-\u9fff])([a-zA-Z0-9])/g, <span class="c-str">'$1 $2'</span>);
+  
+  <span class="c-kw">return</span> <span class="c-fn">restoreSlots</span>(spacedText, protectedSlots);
+}
+          </div>
+        </div>
+
+        <h2 class="art-h2">§ 2. 四套设计语言特征横评</h2>
+        <p class="art-p">请对比下方四套风格的内在灵魂与设计哲学：</p>
+
+        <table class="art-table">
+          <thead>
+            <tr>
+              <th>设计风格</th>
+              <th>字体与版心</th>
+              <th>材质与留白</th>
+              <th>视觉调性</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>🌿 东方和风素纸 (Wabi-Sabi)</strong></td>
+              <td>思源宋体 / 典雅衬线 / 1.85 行高</td>
+              <td>宣纸纤维点阵 / 印泥朱砂红 / 墨线</td>
+              <td>沉静典雅、书卷书香、慢创作</td>
+            </tr>
+            <tr>
+              <td><strong>💎 工业石墨暗黑 (Graphite Dark)</strong></td>
+              <td>现代几何无衬线 / 精巧等宽混排</td>
+              <td>哑光石墨灰 (#121316) / 极其微弱高光边框</td>
+              <td>克制内敛、硬核专业、专注长夜</td>
+            </tr>
+            <tr>
+              <td><strong>📐 瑞士新包豪斯 (Swiss)</strong></td>
+              <td>Helvetica / 900 强字重超粗黑体</td>
+              <td>高冷纯白 / 2px 实体硬黑框 / 克莱因蓝</td>
+              <td>前卫艺术、张力饱满、设计杂志</td>
+            </tr>
+            <tr>
+              <td><strong>✨ 现代轻简北欧 (Nordic Clean)</strong></td>
+              <td>Inter / 苹方 / 优雅现代无衬线</td>
+              <td>纯白大留白 / 柔润微弱环境光阴影 / 皇家蓝</td>
+              <td>干净轻盈、呼吸舒适、日常主力</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 悬浮状态信息药丸 -->
+      <div class="status-pill-box">
+        <div>章节：<strong>§ 2. 视觉特征</strong></div>
+        <div>字数：<strong>1,840</strong></div>
+        <div>编码：<strong>UTF-8</strong></div>
+        <div style="color:var(--primary);font-weight:bold;">● 专注写作</div>
+      </div>
+
+    </main>
+  </div>
+
+  <script>
+    function applyTheme(themeKey, btn) {
+      document.documentElement.setAttribute('data-theme', themeKey);
+      document.querySelectorAll('.style-btn').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+
+      const titleEl = document.getElementById('doc-title-text');
+      const statusEl = document.getElementById('save-status');
+
+      if (themeKey === 'zen') {
+        statusEl.className = 'stamp-mark';
+        statusEl.textContent = '已存盘';
+        statusEl.style.display = 'inline-block';
+        statusEl.style.background = 'transparent';
+      } else if (themeKey === 'graphite') {
+        statusEl.className = '';
+        statusEl.textContent = 'Saved • Sync';
+        statusEl.style.color = '#4f8cf6';
+        statusEl.style.border = '1px solid #23262f';
+        statusEl.style.background = '#1c1e24';
+        statusEl.style.borderRadius = '4px';
+        statusEl.style.padding = '2px 8px';
+        statusEl.style.fontSize = '11px';
+        statusEl.style.fontWeight = '500';
+      } else if (themeKey === 'swiss') {
+        statusEl.className = '';
+        statusEl.textContent = 'SAVED';
+        statusEl.style.background = '#f5f02c';
+        statusEl.style.color = '#000';
+        statusEl.style.fontWeight = '900';
+        statusEl.style.padding = '1px 8px';
+        statusEl.style.border = '2px solid #000';
+        statusEl.style.borderRadius = '0';
+      } else if (themeKey === 'nordic') {
+        statusEl.className = '';
+        statusEl.textContent = '已自动保存';
+        statusEl.style.background = '#eef2ff';
+        statusEl.style.color = '#3b5bf5';
+        statusEl.style.fontWeight = '600';
+        statusEl.style.padding = '2px 8px';
+        statusEl.style.borderRadius = '99px';
+        statusEl.style.border = '1px solid #e0e7ff';
+        statusEl.style.fontSize = '11px';
+      }
+    }
+  </script>
+</body>
+</html>

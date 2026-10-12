@@ -5,7 +5,7 @@
    graphite 同时带 body.dark（深色变量默认值），此处只写皮肤差异。
    ========================================================================== */
 
-/* ========== 和风素纸 Wabi-Sabi：衬线 + 宣纸底 + 朱砂 ========== */
+/* ========== 宣墨（原和风素纸）：衬线 + 宣纸底 + 朱砂 ========== */
 body[data-skin="zen"] {
   --font-body: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, serif;
   --font-mono: "Courier New", "Songti SC", serif;

@@ -369,6 +369,63 @@ body.dark {
   border-color: var(--ui-accent);
 }
 
+/* ---------- 消息对话框（替代原生 alert/confirm） ---------- */
+#msgdlg {
+  position: fixed;
+  inset: 0;
+  z-index: 330;
+  background: rgba(0,0,0,.25);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 22vh;
+}
+
+#msgdlg.hidden { display: none; }
+
+#msgdlg button.hidden { display: none; }
+
+#msgdlg-box {
+  background: var(--ui-card);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  padding: 16px;
+  min-width: 300px;
+  max-width: 440px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.25);
+}
+
+#msgdlg-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.65;
+  font-size: 13px;
+  color: var(--ui-text);
+  margin-bottom: 14px;
+}
+
+#msgdlg .dlg-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+#msgdlg button {
+  border: 1px solid var(--ui-border2);
+  background: var(--ui-btn);
+  color: var(--ui-text);
+  border-radius: 4px;
+  padding: 4px 16px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+#msgdlg button:first-child {
+  background: var(--ui-accent);
+  color: #fff;
+  border-color: var(--ui-accent);
+}
+
 /* 版本历史 */
 #histdlg {
   position: fixed;

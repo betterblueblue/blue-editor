@@ -79,11 +79,11 @@ function fixTypography() {
     lastFixBackup = { path: currentPath, content: before };
     markDirty();
   }
-  alert(`排版修正完成：${r.count} 处`);
+  showAlert(`排版修正完成：${r.count} 处`);
 }
 
 function undoTypography() {
-  if (!lastFixBackup || lastFixBackup.path !== currentPath) { alert('没有可恢复的修正记录'); return; }
+  if (!lastFixBackup || lastFixBackup.path !== currentPath) { showAlert('没有可恢复的修正记录'); return; }
   vditor.setValue(lastFixBackup.content, false);
   lastFixBackup = null;
   markDirty();
@@ -196,7 +196,7 @@ async function openSidebarFile(p) {
   if (!(await guardDirty())) return;
   const r = await bridge.invoke('file.read', p);
   if (r && !r.error) loadDoc(r.path, r.content, r);
-  else alert('无法打开: ' + (r && r.error));
+  else showAlert('无法打开: ' + (r && r.error));
 }
 
 // ---------- 拖拽移动 ----------
@@ -215,7 +215,7 @@ function attachDropTarget(el, dirPath) {
     try { data = JSON.parse(e.dataTransfer.getData('text/plain')); } catch (err) { return; }
     if (!data || !data.path || data.path === dirPath) return;
     const r = await bridge.invoke('file.move', data.path, dirPath);
-    if (!r || !r.ok) { alert('移动失败: ' + (r && r.error)); return; }
+    if (!r || !r.ok) { showAlert('移动失败: ' + (r && r.error)); return; }
     // 拖的是当前文档 → 同步路径、监听、图片基准和草稿（树刷新由 dir:changed 负责）
     if (currentPath === data.path) {
       await bridge.invoke('draft.clear', data.path, null); // 旧路径的草稿身份作废
@@ -246,7 +246,7 @@ function initSidebarDnD() {
     try { data = JSON.parse(e.dataTransfer.getData('text/plain')); } catch (err) { return; }
     if (!data || !data.path || !treeRoot) return;
     const r = await bridge.invoke('file.move', data.path, treeRoot);
-    if (!r || !r.ok) { alert('移动失败: ' + (r && r.error)); return; }
+    if (!r || !r.ok) { showAlert('移动失败: ' + (r && r.error)); return; }
     if (currentPath === data.path) {
       await bridge.invoke('draft.clear', data.path, null);
       currentPath = r.newPath;
@@ -305,11 +305,40 @@ function ctxPrompt(placeholder, def) {
   });
 }
 
+// 自定义消息框：原生 alert/confirm 无皮肤样式且同步阻塞 JS，
+// 换成走 --ui-* 变量的弹层，自动跟随皮肤
+function showMsg(text, withCancel) {
+  return new Promise((resolve) => {
+    const dlg = document.getElementById('msgdlg');
+    const ok = document.getElementById('msgdlg-ok');
+    const cancel = document.getElementById('msgdlg-cancel');
+    document.getElementById('msgdlg-text').textContent = text;
+    cancel.classList.toggle('hidden', !withCancel);
+    dlg.classList.remove('hidden');
+    const done = (v) => {
+      dlg.classList.add('hidden');
+      document.removeEventListener('keydown', onKey, true);
+      resolve(v);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); done(true); }
+      else if (e.key === 'Escape') { e.stopPropagation(); done(false); }
+    };
+    ok.onclick = () => done(true);
+    cancel.onclick = () => done(false);
+    dlg.onclick = (e) => { if (e.target === dlg) done(false); };
+    document.addEventListener('keydown', onKey, true);
+    setTimeout(() => ok.focus(), 0);
+  });
+}
+const showAlert = (t) => showMsg(t, false);
+const confirmBox = (t) => showMsg(t, true);
+
 async function ctxNewFile(dir) {
   const name = await ctxPrompt('文件名（含 .md）', '未命名.md');
   if (!name) return;
   const r = await bridge.invoke('fs.createFile', dir, name);
-  if (!r || !r.ok) { alert('新建失败: ' + (r && r.error)); return; }
+  if (!r || !r.ok) { showAlert('新建失败: ' + (r && r.error)); return; }
   openSidebarFile(r.path); // 建完直接打开
 }
 
@@ -317,7 +346,7 @@ async function ctxNewDir(dir) {
   const name = await ctxPrompt('文件夹名', '新建文件夹');
   if (!name) return;
   const r = await bridge.invoke('fs.createDir', dir, name);
-  if (!r || !r.ok) { alert('新建失败: ' + (r && r.error)); return; }
+  if (!r || !r.ok) { showAlert('新建失败: ' + (r && r.error)); return; }
   expandedDirs.add(r.path); // 顺手展开新目录
 }
 
@@ -325,7 +354,7 @@ async function ctxRename(p) {
   const name = await ctxPrompt('新名称', basename(p));
   if (!name || name === basename(p)) return;
   const r = await bridge.invoke('fs.rename', p, name);
-  if (!r || !r.ok) { alert('重命名失败: ' + (r && r.error)); return; }
+  if (!r || !r.ok) { showAlert('重命名失败: ' + (r && r.error)); return; }
   if (currentPath === p) {
     currentPath = r.newPath;
     refreshTitle();
@@ -334,9 +363,9 @@ async function ctxRename(p) {
 }
 
 async function ctxTrash(p) {
-  if (!window.confirm(`确定把「${basename(p)}」移到回收站？`)) return;
+  if (!await confirmBox(`确定把「${basename(p)}」移到回收站？`)) return;
   const r = await bridge.invoke('fs.trash', p);
-  if (!r || !r.ok) alert('删除失败: ' + (r && r.error));
+  if (!r || !r.ok) showAlert('删除失败: ' + (r && r.error));
 }
 
 function initCtxMenu() {
@@ -520,8 +549,8 @@ function initFindbar() {
     if (!from || !vditor) return;
     const md = vditor.getValue();
     const cnt = md.split(from).length - 1;
-    if (!cnt) { alert('未找到: ' + from); return; }
-    if (!window.confirm(`确定把 ${cnt} 处「${from}」替换为「${to}」？`)) return;
+    if (!cnt) { showAlert('未找到: ' + from); return; }
+    if (!await confirmBox(`确定把 ${cnt} 处「${from}」替换为「${to}」？`)) return;
     vditor.setValue(md.split(from).join(to));
     markDirty();
   };
@@ -548,7 +577,7 @@ function initFileWatch() {
     if (r && !r.error) {
       loadDoc(r.path, r.content);
       document.getElementById('conflictbar').classList.add('hidden');
-    } else alert('无法重载: ' + (r && r.error));
+    } else showAlert('无法重载: ' + (r && r.error));
   };
   document.getElementById('cf-ignore').onclick = () => {
     document.getElementById('conflictbar').classList.add('hidden');
@@ -679,7 +708,7 @@ async function openLink(href) {
     if (!(await guardDirty())) return;
     const r = await bridge.invoke('file.read', p);
     if (r && !r.error) loadDoc(r.path, r.content);
-    else alert('无法打开链接: ' + href);
+    else showAlert('无法打开链接: ' + href);
     return;
   }
   if (!currentPath) return;
@@ -690,14 +719,14 @@ async function openLink(href) {
   if (!(await guardDirty())) return;
   const r = await bridge.invoke('file.read', full);
   if (r && !r.error) loadDoc(r.path, r.content);
-  else alert('无法打开链接: ' + href);
+  else showAlert('无法打开链接: ' + href);
 }
 
 // 修改未保存时的护栏
 async function guardDirty() {
   if (!dirty) return true;
   if (vditor) flushDraft();
-  const ok = window.confirm('当前文档有未保存修改，仍要继续吗？\n（自动草稿已写入 userData/drafts）');
+  const ok = await confirmBox('当前文档有未保存修改，仍要继续吗？\n（自动草稿已写入 userData/drafts）');
   if (ok) {
     // 用户明确放弃修改 → 把草稿也清掉，否则下次启动又复活成脏窗口
     await bridge.invoke('draft.clear', currentPath, draftId);
@@ -717,7 +746,7 @@ function loadDoc(path, content, meta) {
   sidebarRefresh();
   watchCurrentFile();
   if (docEncoding !== 'utf8') {
-    alert('该文件不是 UTF-8 编码（已按 ' + docEncoding.toUpperCase() + ' 解码显示）。\n保存时将转换为 UTF-8。');
+    showAlert('该文件不是 UTF-8 编码（已按 ' + docEncoding.toUpperCase() + ' 解码显示）。\n保存时将转换为 UTF-8。');
   }
 }
 
@@ -735,7 +764,7 @@ async function save() {
     draftId = null;
     docEncoding = 'utf8'; // 保存后盘上就是 UTF-8
     markClean();
-  } else alert('保存失败: ' + (r && r.error));
+  } else showAlert('保存失败: ' + (r && r.error));
 }
 
 async function saveAs() {
@@ -794,14 +823,14 @@ bridge.onMenuAction(async (action, payload) => {
       if (!(await guardDirty())) break;
       const r = await bridge.invoke('file.openDialog');
       if (r && !r.error) loadDoc(r.path, r.content, r);
-      else if (r && r.error) alert('无法打开: ' + r.error);
+      else if (r && r.error) showAlert('无法打开: ' + r.error);
       break;
     }
     case 'file:openPath': {
       if (!(await guardDirty())) break;
       const r = await bridge.invoke('file.read', payload);
       if (r && !r.error) loadDoc(r.path, r.content, r);
-      else alert('无法打开: ' + (r && r.error));
+      else showAlert('无法打开: ' + (r && r.error));
       break;
     }
     case 'file:newPath': {
@@ -846,19 +875,19 @@ bridge.onMenuAction(async (action, payload) => {
         { x: Math.round(box.left), y: 0,
           width: Math.round(box.width), height: Math.round(h) },
         exportName('.png'));
-      if (r && r.ok === false) alert('PNG 导出失败: ' + r.error);
+      if (r && r.ok === false) showAlert('PNG 导出失败: ' + r.error);
       break;
     }
     case 'export:pandoc': {
       const ext = payload || 'docx';
       const r = await bridge.invoke('pandoc.export', vditor.getValue(), exportName('.' + ext), payload || null, currentPath);
-      if (r && r.ok === false) alert('导出失败: ' + r.error);
+      if (r && r.ok === false) showAlert('导出失败: ' + r.error);
       break;
     }
     case 'import:pandoc': {
       const r = await bridge.invoke('pandoc.import');
       if (!r) break;
-      if (!r.ok) { alert('Pandoc 导入失败: ' + r.error); break; }
+      if (!r.ok) { showAlert('Pandoc 导入失败: ' + r.error); break; }
       if (!(await guardDirty())) break;
       currentPath = null;          // 导入内容落在未命名文档，等用户另存
       vditor.setValue(r.content || '');
@@ -923,7 +952,7 @@ bridge.onMenuAction(async (action, payload) => {
 let histSnaps = [], histSel = null;
 
 async function openHistory() {
-  if (!currentPath) { alert('未命名文档没有版本历史（保存后开始记录）'); return; }
+  if (!currentPath) { showAlert('未命名文档没有版本历史（保存后开始记录）'); return; }
   const r = await bridge.invoke('hist.list', currentPath);
   histSnaps = r.snaps || [];
   document.getElementById('histdlg').classList.remove('hidden');
@@ -971,16 +1000,16 @@ document.getElementById('histdlg').addEventListener('click',
   e => { if (e.target.id === 'histdlg') e.currentTarget.classList.add('hidden'); });
 document.getElementById('hist-restore').onclick = async () => {
   if (histSel == null) return;
-  if (!confirm('恢复此版本？当前内容会先留存一份快照，可再次恢复回来')) return;
+  if (!await confirmBox('恢复此版本？当前内容会先留存一份快照，可再次恢复回来')) return;
   const r = await bridge.invoke('hist.read', currentPath, histSel);
-  if (!r.ok) { alert('读取快照失败'); return; }
+  if (!r.ok) { showAlert('读取快照失败'); return; }
   await bridge.invoke('hist.snap', currentPath, vditor.getValue());
   vditor.setValue(r.content, false);
   markDirty();
   document.getElementById('histdlg').classList.add('hidden');
 };
 document.getElementById('hist-clear').onclick = async () => {
-  if (!confirm('清空此文档的全部历史版本？此操作不可撤销')) return;
+  if (!await confirmBox('清空此文档的全部历史版本？此操作不可撤销')) return;
   await bridge.invoke('hist.clear', currentPath);
   histSnaps = []; histSel = null;
   renderHistList();
@@ -1108,12 +1137,12 @@ document.getElementById('wcdlg').addEventListener('click',
   e => { if (e.target.id === 'wcdlg') e.currentTarget.classList.add('hidden'); });
 document.getElementById('wc-copy').onclick = async () => {
   const r = await buildWechatHTML(wcTheme);
-  if (!(await copyHtml(r.html, r.text))) { alert('复制失败，请重试'); return; }
+  if (!(await copyHtml(r.html, r.text))) { showAlert('复制失败，请重试'); return; }
   document.getElementById('wcdlg').classList.add('hidden');
   let msg = '已复制，请到公众号编辑器粘贴';
   if (r.localImgs) msg += `\n注意：${r.localImgs} 张本地图片已替换为占位，需在公众号后台重新插入`;
   if (r.refCount) msg += `\n${r.refCount} 个外链已转为文末参考资料`;
-  alert(msg);
+  showAlert(msg);
 };
 
 const exportName = (ext) =>
@@ -1187,7 +1216,7 @@ async function buildHTMLDoc() {
     if (!(await guardDirty())) return;
     const r = await bridge.invoke('file.read', p);
     if (r && !r.error) loadDoc(r.path, r.content, r);
-    else alert('无法打开: ' + (r && r.error));
+    else showAlert('无法打开: ' + (r && r.error));
   });
   // 未保存草稿由主进程启动时经 draft:restore 推送到本窗口
   vditor = createEditor('');
@@ -1203,7 +1232,7 @@ window.__ed = {
   get dirty() { return dirty; },
   save, saveAs, setMode,
   // 测试句柄
-  buildHTMLDoc, buildWechatHTML, fixTypography, undoTypography, openHistory, openWechatPicker, flushDraft, extractHeads, moveSection, renderTree, expandedDirs, dirCache, setTheme,
+  buildHTMLDoc, buildWechatHTML, fixTypography, undoTypography, openHistory, openWechatPicker, flushDraft, extractHeads, moveSection, renderTree, expandedDirs, dirCache, setTheme, showAlert, confirmBox,
   get outlineHeads() { return outlineHeads; }
 };
 

@@ -205,7 +205,7 @@ body[data-skin="swiss"] #sidebar-tabs .tab.active {
 }
 body[data-skin="swiss"] #findbar, body[data-skin="swiss"] #ctxmenu,
 body[data-skin="swiss"] #inputdlg-box, body[data-skin="swiss"] #histdlg-box,
-body[data-skin="swiss"] #wcdlg-box {
+body[data-skin="swiss"] #wcdlg-box, body[data-skin="swiss"] #msgdlg-box {
   border-radius: 0;
   border: 2px solid #000;
   box-shadow: 4px 4px 0 #000;
@@ -268,4 +268,4 @@ body[data-skin="nordic"] #dir-list li, body[data-skin="nordic"] #outline-list li
 body[data-skin="nordic"] #dir-list li.current { background: #eef2ff; color: #3b5bf5; }
 body[data-skin="nordic"] #findbar, body[data-skin="nordic"] #ctxmenu,
 body[data-skin="nordic"] #inputdlg-box, body[data-skin="nordic"] #histdlg-box,
-body[data-skin="nordic"] #wcdlg-box { border-radius: 10px; }
+body[data-skin="nordic"] #wcdlg-box, body[data-skin="nordic"] #msgdlg-box { border-radius: 10px; }

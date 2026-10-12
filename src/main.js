@@ -791,6 +791,8 @@ ipcMain.handle('hist.list', (e, p) => {
   } catch (err) { return { ok: true, snaps: [] }; }
 });
 ipcMain.handle('hist.read', (e, p, ts) => {
+  // ts 拼进路径，必须是纯数字，防 '../../x' 穿越
+  if (!Number.isSafeInteger(ts)) return { ok: false, error: 'bad ts' };
   try { return { ok: true, content: fs.readFileSync(path.join(histDir(p), ts + '.md'), 'utf8') }; }
   catch (err) { return { ok: false, error: err.message }; }
 });

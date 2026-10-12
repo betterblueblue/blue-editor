@@ -22,17 +22,24 @@ function applyCnTypography(md) {
   const slots = [];
   const stash = (s) => { slots.push(s); return '\u0000' + (slots.length - 1) + '\u0000'; };
   let t = md
+    .replace(/^---\r?\n[\s\S]*?\r?\n---(?=\r?\n|$)/, m => stash(m)) // YAML front matter
     .replace(/```[\s\S]*?(```|$)/g, m => stash(m))
     .replace(/`[^`\n]+`/g, m => stash(m))
     .replace(/\$\$[\s\S]*?\$\$|\$[^\n$]+\$/g, m => stash(m))
-    .replace(/!\[/g, m => stash(m)) // 图片语法的 ! 先于标点规则藏起来，否则中文相邻会被转全角
+    .replace(/<!--[\s\S]*?-->/g, m => stash(m))
+    .replace(/^[ \t]*\[(?!\^)[^\]\n]+\]:[ \t]*\S.*$/gm, m => stash(m)) // 引用式链接定义（脚注 [^1]: 除外）
+    // 链接/图片地址必须先于 `![` 占位，否则图片地址漏网（截图1.png → 截图 1.png）
     .replace(/(!?\[[^\]]*\])\(([^)\s]+)\)/g, (m, txt, url) => txt + '(' + stash(url) + ')')
+    .replace(/!\[/g, m => stash(m)) // 图片语法的 ! 藏起来，否则中文相邻会被转全角
     .replace(/https?:\/\/[^\s)]+/g, m => stash(m))
     .replace(/<[^>\n]+>/g, m => stash(m));
   const CJK = '[\\u4e00-\\u9fff\\u3400-\\u4dbf\\uf900-\\ufaff]';
   let n = 0;
-  // Lute 术语库没覆盖到的常见词补充（词边界匹配，代码/URL 已占位保护）
-  const TERMS = { javascript: 'JavaScript', typescript: 'TypeScript', nodejs: 'Node.js',
+  // Lute 术语库没覆盖到的常见词补充（词边界匹配，代码/URL 已占位保护）；
+  // Lute 遇到紧跟半角逗号的词（"github,"）不改，高频词这里兜底
+  const TERMS = { github: 'GitHub', gitlab: 'GitLab', mysql: 'MySQL', postgresql: 'PostgreSQL',
+    docker: 'Docker', linux: 'Linux', python: 'Python',
+    javascript: 'JavaScript', typescript: 'TypeScript', nodejs: 'Node.js',
     vscode: 'VS Code', iphone: 'iPhone', ipad: 'iPad', ios: 'iOS', macos: 'macOS',
     android: 'Android', youtube: 'YouTube', html: 'HTML', css: 'CSS', api: 'API',
     json: 'JSON', xml: 'XML', url: 'URL', pdf: 'PDF' };
@@ -44,7 +51,8 @@ function applyCnTypography(md) {
   t = t.replace(new RegExp('(' + CJK + ')([A-Za-z0-9])', 'g'), (m, a, b) => { n++; return a + ' ' + b; });
   t = t.replace(new RegExp('([A-Za-z0-9])(' + CJK + ')', 'g'), (m, a, b) => { n++; return a + ' ' + b; });
   const PW = { ',': '，', ';': '；', ':': '：', '!': '！', '?': '？' };
-  t = t.replace(new RegExp(CJK + '\\s*([,;:!?])', 'g'), (m, p) => { n++; return m.slice(0, m.length - 1) + PW[p]; });
+  // 全角标点自带间距，前后的空格一并去掉；只吃空格/Tab，不跨行
+  t = t.replace(new RegExp('(' + CJK + ')[ \\t]*([,;:!?])[ \\t]*', 'g'), (m, c, p) => { n++; return c + PW[p]; });
   t = t.replace(new RegExp('([,;:!?])(' + CJK + ')', 'g'), (m, p, c) => { n++; return PW[p] + c; });
   t = t.replace(/\u0000(\d+)\u0000/g, (m, i) => slots[+i]);
   return { text: t, count: n };
@@ -56,22 +64,15 @@ let lastFixBackup = null;
 function fixTypography() {
   if (!vditor) return;
   const before = vditor.getValue();
-  // 大文档跳过 Lute 术语库那一趟（fixTermTypo 对全文档节点逐个匹配，
-  // 实测 124KB 文档要 ~5 分钟）；只用自写规则一次 setValue，自建词表仍生效
-  const big = before.length > 60 * 1024;
-  if (big && !confirm('文档较大，排版修正可能需要几秒到十几秒，继续？')) return;
   if (currentPath) bridge.invoke('hist.snap', currentPath, before); // 修正前留档
   const r = applyCnTypography(before);
-  if (!big) {
-    try {
-      const lute = vditor.vditor.lute;
-      lute.SetFixTermTypo(true);
-      vditor.setValue(r.text, false);
-      lute.SetFixTermTypo(false);
-    } catch (e) {
-      vditor.setValue(r.text, false);
-    }
-  } else {
+  // Lute 术语库（github→GitHub 等，代码块天然不动）：借编辑器实例开一次再关
+  try {
+    const lute = vditor.vditor.lute;
+    lute.SetFixTermTypo(true);
+    vditor.setValue(r.text, false);
+    lute.SetFixTermTypo(false);
+  } catch (e) {
     vditor.setValue(r.text, false);
   }
   if (vditor.getValue() !== before) {

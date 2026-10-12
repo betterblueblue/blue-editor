@@ -56,7 +56,9 @@ npm run dist              # 打包 → dist/（NSIS 安装包 + 绿色版，.md 
 
 ## 安全设计
 
-- `nodeIntegration:false` + `contextIsolation:true`
+- `nodeIntegration:false` + `contextIsolation:true` + `sandbox:true`
+- 文件类 IPC 按窗口做路径准入：写/删/移只允许发生在已打开的目录内；
+  文本读取限 md 扩展名，base64 读取限图片扩展名
 - preload 按通道白名单暴露 IPC，没有通用 invoke
 - 页面跳转 / 新窗口全部拦截：http(s) 链接一律交给系统浏览器
 - CSP：`object-src 'none'; frame-src 'none'`——编辑器内不会加载任何

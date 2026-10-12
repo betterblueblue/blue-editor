@@ -56,15 +56,22 @@ let lastFixBackup = null;
 function fixTypography() {
   if (!vditor) return;
   const before = vditor.getValue();
+  // 大文档跳过 Lute 术语库那一趟（fixTermTypo 对全文档节点逐个匹配，
+  // 实测 124KB 文档要 ~5 分钟）；只用自写规则一次 setValue，自建词表仍生效
+  const big = before.length > 60 * 1024;
+  if (big && !confirm('文档较大，排版修正可能需要几秒到十几秒，继续？')) return;
   if (currentPath) bridge.invoke('hist.snap', currentPath, before); // 修正前留档
   const r = applyCnTypography(before);
-  // Lute 术语库（github→GitHub 等，代码块天然不动）：借编辑器实例开一次再关
-  try {
-    const lute = vditor.vditor.lute;
-    lute.SetFixTermTypo(true);
-    vditor.setValue(r.text, false);
-    lute.SetFixTermTypo(false);
-  } catch (e) {
+  if (!big) {
+    try {
+      const lute = vditor.vditor.lute;
+      lute.SetFixTermTypo(true);
+      vditor.setValue(r.text, false);
+      lute.SetFixTermTypo(false);
+    } catch (e) {
+      vditor.setValue(r.text, false);
+    }
+  } else {
     vditor.setValue(r.text, false);
   }
   if (vditor.getValue() !== before) {

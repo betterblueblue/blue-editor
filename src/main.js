@@ -221,7 +221,6 @@ function buildMenu() {
       submenu: [
         { label: '所见即所得', click: () => send('view:mode', 'wysiwyg') },
         { label: '即时渲染', click: () => send('view:mode', 'ir') },
-        { label: '分屏预览', click: () => send('view:mode', 'sv') },
         { type: 'separator' },
         { label: '侧边栏', type: 'checkbox', checked: setting.get('sidebar') !== false, click: (i) => send('view:sidebar', i.checked) },
         { label: '工具栏', type: 'checkbox', checked: setting.get('toolbar') === true, click: (i) => send('view:toolbar', i.checked) },

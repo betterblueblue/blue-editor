@@ -15,6 +15,72 @@ let mode = 'wysiwyg';
 const basename = (p) => p ? p.replace(/\\/g, '/').split('/').pop() : null;
 const dirname = (p) => p ? p.replace(/[\\/][^\\/]+$/, '') : null;
 
+// ---------- 中文排版修正 ----------
+// 自写规则：先占位保护代码/数学/链接地址/URL/HTML 标签，再对正文做
+// 中英文间空格 + CJK 相邻半角标点转全角（, ; : ! ?——其余符号误伤面太大不碰）
+function applyCnTypography(md) {
+  const slots = [];
+  const stash = (s) => { slots.push(s); return '\u0000' + (slots.length - 1) + '\u0000'; };
+  let t = md
+    .replace(/```[\s\S]*?(```|$)/g, m => stash(m))
+    .replace(/`[^`\n]+`/g, m => stash(m))
+    .replace(/\$\$[\s\S]*?\$\$|\$[^\n$]+\$/g, m => stash(m))
+    .replace(/!\[/g, m => stash(m)) // 图片语法的 ! 先于标点规则藏起来，否则中文相邻会被转全角
+    .replace(/(!?\[[^\]]*\])\(([^)\s]+)\)/g, (m, txt, url) => txt + '(' + stash(url) + ')')
+    .replace(/https?:\/\/[^\s)]+/g, m => stash(m))
+    .replace(/<[^>\n]+>/g, m => stash(m));
+  const CJK = '[\\u4e00-\\u9fff\\u3400-\\u4dbf\\uf900-\\ufaff]';
+  let n = 0;
+  // Lute 术语库没覆盖到的常见词补充（词边界匹配，代码/URL 已占位保护）
+  const TERMS = { javascript: 'JavaScript', typescript: 'TypeScript', nodejs: 'Node.js',
+    vscode: 'VS Code', iphone: 'iPhone', ipad: 'iPad', ios: 'iOS', macos: 'macOS',
+    android: 'Android', youtube: 'YouTube', html: 'HTML', css: 'CSS', api: 'API',
+    json: 'JSON', xml: 'XML', url: 'URL', pdf: 'PDF' };
+  t = t.replace(/[A-Za-z][A-Za-z0-9.+-]*/g, (w) => {
+    const fix = TERMS[w.toLowerCase()];
+    if (fix && fix !== w) { n++; return fix; }
+    return w;
+  });
+  t = t.replace(new RegExp('(' + CJK + ')([A-Za-z0-9])', 'g'), (m, a, b) => { n++; return a + ' ' + b; });
+  t = t.replace(new RegExp('([A-Za-z0-9])(' + CJK + ')', 'g'), (m, a, b) => { n++; return a + ' ' + b; });
+  const PW = { ',': '，', ';': '；', ':': '：', '!': '！', '?': '？' };
+  t = t.replace(new RegExp(CJK + '\\s*([,;:!?])', 'g'), (m, p) => { n++; return m.slice(0, m.length - 1) + PW[p]; });
+  t = t.replace(new RegExp('([,;:!?])(' + CJK + ')', 'g'), (m, p, c) => { n++; return PW[p] + c; });
+  t = t.replace(/\u0000(\d+)\u0000/g, (m, i) => slots[+i]);
+  return { text: t, count: n };
+}
+
+// 修正前的内容留在内存，菜单可一键恢复（setValue 不进 Vditor 撤销栈，Ctrl+Z 无效）
+let lastFixBackup = null;
+
+function fixTypography() {
+  if (!vditor) return;
+  const before = vditor.getValue();
+  if (currentPath) bridge.invoke('hist.snap', currentPath, before); // 修正前留档
+  const r = applyCnTypography(before);
+  // Lute 术语库（github→GitHub 等，代码块天然不动）：借编辑器实例开一次再关
+  try {
+    const lute = vditor.vditor.lute;
+    lute.SetFixTermTypo(true);
+    vditor.setValue(r.text, false);
+    lute.SetFixTermTypo(false);
+  } catch (e) {
+    vditor.setValue(r.text, false);
+  }
+  if (vditor.getValue() !== before) {
+    lastFixBackup = { path: currentPath, content: before };
+    markDirty();
+  }
+  alert(`排版修正完成：${r.count} 处`);
+}
+
+function undoTypography() {
+  if (!lastFixBackup || lastFixBackup.path !== currentPath) { alert('没有可恢复的修正记录'); return; }
+  vditor.setValue(lastFixBackup.content, false);
+  lastFixBackup = null;
+  markDirty();
+}
+
 // ---------- 侧栏 ----------
 const $sidebar = () => document.getElementById('sidebar');
 let treeRoot = null;
@@ -740,6 +806,7 @@ bridge.onMenuAction(async (action, payload) => {
     }
     case 'file:save': await save(); break;
     case 'file:saveAs': await saveAs(); break;
+    case 'file:history': openHistory(); break;
     case 'view:mode': setMode(payload); break;
     case 'view:theme': await setTheme(payload); break;
     case 'export:pdf':
@@ -787,6 +854,17 @@ bridge.onMenuAction(async (action, payload) => {
       sidebarRefresh();
       break;
     }
+    case 'edit:fixCn': fixTypography(); break;
+    case 'edit:undoFixCn': undoTypography(); break;
+    case 'publish:wechat': {
+      const r = await buildWechatHTML(payload);
+      await bridge.invoke('clipboard.write', { html: r.html, text: r.text });
+      let msg = '已复制，请到公众号编辑器粘贴';
+      if (r.localImgs) msg += `\n注意：${r.localImgs} 张本地图片已替换为占位，需在公众号后台重新插入`;
+      if (r.refCount) msg += `\n${r.refCount} 个外链已转为文末参考资料`;
+      alert(msg);
+      break;
+    }
     case 'edit:undo':
       try { vditor.focus(); vditor.vditor.undo.undo(vditor.vditor); } catch (e) {}
       break;
@@ -830,6 +908,146 @@ bridge.onMenuAction(async (action, payload) => {
     }
   }
 });
+
+// ---------- 版本历史面板 ----------
+let histSnaps = [], histSel = null;
+
+async function openHistory() {
+  if (!currentPath) { alert('未命名文档没有版本历史（保存后开始记录）'); return; }
+  const r = await bridge.invoke('hist.list', currentPath);
+  histSnaps = r.snaps || [];
+  document.getElementById('histdlg').classList.remove('hidden');
+  renderHistList();
+  if (histSnaps.length) selectHist(histSnaps[0].ts);
+  else document.getElementById('hist-diff').innerHTML =
+    '<div class="hist-empty">还没有历史版本。每次保存会自动留存快照。</div>';
+}
+
+function renderHistList() {
+  const el = document.getElementById('hist-list');
+  el.innerHTML = '';
+  histSnaps.forEach((s, i) => {
+    const d = document.createElement('div');
+    d.className = 'hist-item' + (s.ts === histSel ? ' sel' : '') + (i === 0 ? ' latest' : '');
+    d.innerHTML = '<div>' + new Date(s.ts).toLocaleString() + '</div>' +
+      '<div class="sz">' + (s.size / 1024).toFixed(1) + ' KB</div>';
+    d.onclick = () => selectHist(s.ts);
+    el.appendChild(d);
+  });
+}
+
+async function selectHist(ts) {
+  histSel = ts;
+  renderHistList();
+  const box = document.getElementById('hist-diff');
+  const r = await bridge.invoke('hist.read', currentPath, ts);
+  if (!r.ok) { box.innerHTML = '<div class="hist-empty">读取快照失败</div>'; return; }
+  const d = await bridge.invoke('hist.diff', r.content, vditor.getValue());
+  box.innerHTML = '';
+  const rows = [];
+  for (const [op, text] of (d.diffs || [])) {
+    for (const line of text.split('\n')) {
+      if (line === '') continue;
+      rows.push('<div class="dl ' + (op === 1 ? 'add' : op === -1 ? 'del' : 'same') + '">' +
+        escapeHtml((op === 1 ? '+ ' : op === -1 ? '- ' : '  ') + line) + '</div>');
+    }
+  }
+  box.innerHTML = rows.length ? rows.join('') : '<div class="hist-empty">与当前内容相同</div>';
+}
+
+document.getElementById('hist-close').onclick =
+  () => document.getElementById('histdlg').classList.add('hidden');
+document.getElementById('histdlg').addEventListener('click',
+  e => { if (e.target.id === 'histdlg') e.currentTarget.classList.add('hidden'); });
+document.getElementById('hist-restore').onclick = async () => {
+  if (histSel == null) return;
+  if (!confirm('恢复此版本？当前内容会先留存一份快照，可再次恢复回来')) return;
+  const r = await bridge.invoke('hist.read', currentPath, histSel);
+  if (!r.ok) { alert('读取快照失败'); return; }
+  await bridge.invoke('hist.snap', currentPath, vditor.getValue());
+  vditor.setValue(r.content, false);
+  markDirty();
+  document.getElementById('histdlg').classList.add('hidden');
+};
+document.getElementById('hist-clear').onclick = async () => {
+  if (!confirm('清空此文档的全部历史版本？此操作不可撤销')) return;
+  await bridge.invoke('hist.clear', currentPath);
+  histSnaps = []; histSel = null;
+  renderHistList();
+  document.getElementById('hist-diff').innerHTML = '<div class="hist-empty">已清空</div>';
+};
+
+// ---------- 公众号复制 ----------
+// hljs 高亮 class → 行内颜色（公众号删 class，颜色必须在 style 里）
+const HLJS_COLORS = {
+  keyword: '#d73a49', 'keyword-tag': '#22863a', string: '#032f62', comment: '#6a737d',
+  number: '#005cc5', literal: '#005cc5', built_in: '#e36209', 'built-in': '#e36209',
+  title: '#6f42c1', attr: '#005cc5', attribute: '#005cc5', type: '#d73a49',
+  name: '#22863a', symbol: '#e36209', regexp: '#032f62', meta: '#6a737d'
+};
+
+// Vditor.preview 离屏渲染 → 外链转脚注 + 代码块保空白 + 样式全内联 + 去 class/id
+async function buildWechatHTML(themeKey) {
+  const theme = (window.WECHAT_THEMES || {})[themeKey] || Object.values(window.WECHAT_THEMES || {})[0];
+  const host = document.createElement('div');
+  host.style.cssText = 'position:absolute;left:-99999px;top:0;width:677px;';
+  document.body.appendChild(host);
+  try {
+    await Vditor.preview(host, vditor.getValue(), { cdn: '../../node_modules/vditor' });
+    // 本地图片公众号收不下 → 占位文字 + 计数提示
+    // （相对路径、file://、data: 一律按本地算——离屏 preview 不会解析相对路径）
+    let localImgs = 0;
+    host.querySelectorAll('img').forEach(img => {
+      const s = img.getAttribute('src') || '';
+      if (!/^https?:/i.test(s)) {
+        localImgs++;
+        img.replaceWith(document.createTextNode('[图片]'));
+      }
+    });
+    // 外链 → 正文纯文字 + 末尾"参考资料"脚注（公众号会去掉非白名单链接）
+    const refs = [];
+    host.querySelectorAll('a').forEach(a => {
+      const href = a.getAttribute('href') || '';
+      const text = document.createTextNode(a.textContent);
+      if (!/^https?:/i.test(href)) { a.replaceWith(text); return; }
+      refs.push(href);
+      const sup = document.createElement('sup');
+      sup.textContent = ' [' + refs.length + ']';
+      a.replaceWith(text, sup);
+    });
+    // 代码块空白保全：\n→<br>、连续空格→&nbsp;（white-space 在公众号可能被剥）
+    host.querySelectorAll('pre code').forEach(c => {
+      c.innerHTML = c.innerHTML.replace(/\n/g, '<br>').replace(/ {2}/g, ' &nbsp;');
+    });
+    // hljs class → 行内颜色
+    host.querySelectorAll('span, code').forEach(el => {
+      const cls = (el.getAttribute('class') || '').match(/hljs-([\w-]+)/);
+      if (cls && HLJS_COLORS[cls[1]]) el.style.color = HLJS_COLORS[cls[1]];
+    });
+    // 参考资料区
+    if (refs.length) {
+      const sec = document.createElement('section');
+      sec.className = 'wechat-refs';
+      sec.innerHTML = '<h4>参考资料</h4>' +
+        refs.map((u, i) => '<p>[' + (i + 1) + '] ' + escapeHtml(u) + '</p>').join('');
+      host.appendChild(sec);
+    }
+    // 主题样式内联（同元素多条规则后者覆盖前者）
+    for (const rule of theme.rules) {
+      host.querySelectorAll(rule.s).forEach(el => { el.style.cssText += ';' + rule.c; });
+    }
+    // 去掉所有 class/id（公众号会删，提前清掉避免无效字节）
+    host.querySelectorAll('*').forEach(el => { el.removeAttribute('class'); el.removeAttribute('id'); });
+    return {
+      html: '<section style="font-family:-apple-system,BlinkMacSystemFont,Helvetica Neue,PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif">' +
+        host.innerHTML + '</section>',
+      text: host.textContent,
+      localImgs, refCount: refs.length
+    };
+  } finally {
+    host.remove();
+  }
+}
 
 const exportName = (ext) =>
   (basename(currentPath) || 'untitled').replace(/\.[^.]+$/, '') + ext;
@@ -917,7 +1135,7 @@ window.__ed = {
   get dirty() { return dirty; },
   save, saveAs, setMode,
   // 测试句柄
-  buildHTMLDoc, flushDraft, extractHeads, moveSection, renderTree, expandedDirs, dirCache,
+  buildHTMLDoc, buildWechatHTML, fixTypography, undoTypography, openHistory, flushDraft, extractHeads, moveSection, renderTree, expandedDirs, dirCache,
   get outlineHeads() { return outlineHeads; }
 };
 

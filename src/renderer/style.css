@@ -406,6 +406,116 @@ body.dark #inputdlg-box button:first-child {
   color: #fff;
 }
 
+/* 版本历史 */
+#histdlg {
+  position: fixed;
+  inset: 0;
+  z-index: 310;
+  background: rgba(0,0,0,.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#histdlg.hidden { display: none; }
+#histdlg-box {
+  background: #fff;
+  border-radius: 8px;
+  width: min(760px, 90vw);
+  height: min(560px, 85vh);
+  box-shadow: 0 8px 30px rgba(0,0,0,.3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#hist-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  border-bottom: 1px solid #e1e4e8;
+}
+#hist-head button {
+  border: none;
+  background: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #666;
+}
+#hist-body { flex: 1; display: flex; min-height: 0; }
+#hist-list {
+  width: 190px;
+  overflow-y: auto;
+  border-right: 1px solid #e1e4e8;
+  flex-shrink: 0;
+}
+.hist-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  border-bottom: 1px solid #f0f1f3;
+}
+.hist-item:hover { background: #f0f5ff; }
+.hist-item.sel { background: #e0ebff; }
+.hist-item .sz { color: #888; margin-top: 2px; }
+.hist-item.latest::after { content: '（当前）'; color: #2e7ec7; }
+#hist-diff {
+  flex: 1;
+  overflow: auto;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  padding: 8px 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+#hist-diff .dl { padding: 0 14px; line-height: 1.55; }
+#hist-diff .dl.add { background: #e6ffec; color: #1a7f37; }
+#hist-diff .dl.del { background: #ffebe9; color: #cf222e; text-decoration: line-through; }
+#hist-diff .dl.same { color: #57606a; }
+#hist-diff .hist-empty { color: #888; padding: 16px; font-family: inherit; }
+#hist-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid #e1e4e8;
+}
+#hist-foot button {
+  border: 1px solid #d1d5da;
+  background: #f6f8fa;
+  border-radius: 4px;
+  padding: 4px 14px;
+  cursor: pointer;
+  font-size: 13px;
+}
+#hist-foot button:first-child {
+  background: #2e7ec7;
+  color: #fff;
+  border-color: #2e7ec7;
+}
+body.dark #histdlg-box { background: #2a3138; }
+body.dark #hist-head, body.dark #hist-list { border-color: #444c56; }
+body.dark #hist-head button { color: #aaa; }
+body.dark .hist-item { border-color: #333a41; }
+body.dark .hist-item:hover { background: #333a41; }
+body.dark .hist-item.sel { background: #1f3352; }
+body.dark .hist-item .sz { color: #777; }
+body.dark #hist-diff .dl.same { color: #8b949e; }
+body.dark #hist-diff .dl.add { background: #12261e; color: #3fb950; }
+body.dark #hist-diff .dl.del { background: #32191d; color: #f85149; }
+body.dark #hist-foot { border-color: #444c56; }
+body.dark #hist-foot button {
+  background: #1f2428;
+  border-color: #444c56;
+  color: #d1d5da;
+}
+body.dark #hist-foot button:first-child {
+  background: #2e7ec7;
+  border-color: #2e7ec7;
+  color: #fff;
+}
+
 /* ---------- 界面精简 ---------- */
 /* 工具栏：默认隐藏（视图菜单可开），全屏时强制显示 */
 body.no-toolbar #vditor:not(.vditor--fullscreen) .vditor-toolbar {

@@ -1,6 +1,6 @@
 {
   "name": "blue-editor",
-  "version": "0.3.6",
+  "version": "0.4.0",
   "description": "Blue Editor — lightweight, offline-first WYSIWYG Markdown editor (Electron + Vditor)",
   "author": "betterblue",
   "license": "MIT",
@@ -67,6 +67,7 @@
   },
   "private": true,
   "dependencies": {
+    "diff-match-patch": "^1.0.5",
     "electron-updater": "^6.8.9",
     "vditor": "^4.0.0"
   },

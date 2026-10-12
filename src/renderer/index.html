@@ -36,6 +36,22 @@
         <ul id="outline-list"></ul>
       </div>
       <div id="ctxmenu" class="hidden"></div>
+      <div id="histdlg" class="hidden">
+        <div id="histdlg-box">
+          <div id="hist-head">
+            <span>版本历史</span>
+            <button id="hist-close">×</button>
+          </div>
+          <div id="hist-body">
+            <div id="hist-list"></div>
+            <div id="hist-diff"></div>
+          </div>
+          <div id="hist-foot">
+            <button id="hist-restore">恢复此版本</button>
+            <button id="hist-clear">清空历史</button>
+          </div>
+        </div>
+      </div>
       <div id="inputdlg" class="hidden">
         <div id="inputdlg-box">
           <input id="inputdlg-input" type="text">
@@ -49,6 +65,7 @@
     <div id="vditor"></div>
   </div>
   <script src="../../node_modules/vditor/dist/index.min.js"></script>
+  <script src="wechat-themes.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 // 主进程：薄壳——窗口、文件读写、设置、最近文档、草稿备份、argv/单实例、导出、pandoc
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard } = require('electron');
 const { spawn } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -57,6 +57,8 @@ function isDir(p) {
 }
 
 const MD_EXT = ['.md', '.markdown', '.mdown', '.txt'];
+// 与 src/renderer/wechat-themes.js 的 key 一一对应（菜单文案在主进程维护）
+const WECHAT_MENU_THEMES = { blue: 'Blue 经典', simple: '简约', tech: '技术风' };
 function isOpenable(p) {
   return MD_EXT.includes(path.extname(p).toLowerCase());
 }
@@ -185,6 +187,14 @@ function buildMenu() {
         { label: '导入文档（Word / EPUB 等）…', enabled: !!pandocVersion, click: () => send('import:pandoc') },
         { label: '导出为', submenu: exportSub },
         { type: 'separator' },
+        {
+          label: '复制为公众号格式',
+          submenu: Object.entries(WECHAT_MENU_THEMES).map(([key, name]) => ({
+            label: name, click: () => send('publish:wechat', key)
+          }))
+        },
+        { label: '版本历史…', click: () => send('file:history') },
+        { type: 'separator' },
         { label: '打印…', accelerator: 'CmdOrCtrl+P', click: () => { const w = win; w && w.webContents.print(); } },
         { type: 'separator' },
         { role: 'quit', label: '退出' }
@@ -200,7 +210,10 @@ function buildMenu() {
         { role: 'copy', label: '复制' },
         { role: 'paste', label: '粘贴' },
         { type: 'separator' },
-        { label: '查找 / 替换…', accelerator: 'CmdOrCtrl+F', click: () => send('edit:find') }
+        { label: '查找 / 替换…', accelerator: 'CmdOrCtrl+F', click: () => send('edit:find') },
+        { type: 'separator' },
+        { label: '中文排版修正', accelerator: 'CmdOrCtrl+Shift+T', click: () => send('edit:fixCn') },
+        { label: '撤销排版修正', click: () => send('edit:undoFixCn') }
       ]
     },
     {
@@ -402,6 +415,7 @@ ipcMain.handle('fs.rename', (e, from, newName) => {
       if (fs.existsSync(assets)) {
         try { fs.renameSync(assets, assetsDirOf(to)); } catch (e2) {}
       }
+      histMove(from, to);
     }
     return { ok: true, newPath: to };
   } catch (err) {
@@ -434,6 +448,7 @@ ipcMain.handle('file.move', (e, src, destDir) => {
       if (fs.existsSync(assets)) {
         try { fs.renameSync(assets, assetsDirOf(newPath)); } catch (e) {}
       }
+      histMove(normSrc, newPath);
     }
     return { ok: true, newPath };
   } catch (err) {
@@ -527,9 +542,12 @@ function rememberMtime(p, winId) {
 ipcMain.handle('file.save', (e, p, content) => {
   try {
     fs.mkdirSync(path.dirname(p), { recursive: true });
+    // 保存前先把旧磁盘内容留一份快照，这样能回到"本次修改前"
+    try { histSnap(p, fs.readFileSync(p, 'utf8')); } catch (e) {}
     fs.writeFileSync(p, content, 'utf8');
     rememberMtime(p, winOf(e).id);
     addRecent(p);
+    histSnap(p, content);
     return { ok: true, path: p };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -574,6 +592,7 @@ ipcMain.handle('file.saveAs', async (e, content, defaultPath) => {
     fs.writeFileSync(r.filePath, content, 'utf8');
     rememberMtime(r.filePath, winOf(e).id);
     addRecent(r.filePath);
+    histSnap(r.filePath, content);
     return { ok: true, path: r.filePath };
   } catch (err) {
     return { ok: false, error: err.message };
@@ -717,6 +736,84 @@ ipcMain.handle('export.cssBundle', () => {
     } catch (e) { /* 文件缺了就跳过 */ }
   }
   return css;
+});
+
+ipcMain.handle('clipboard.write', (e, payload) => {
+  clipboard.write({ text: payload.text || '', html: payload.html || '' });
+  return { ok: true };
+});
+
+// ---------- 版本历史 ----------
+// userData/history/<sha1(路径)>/ 下存 <ts>.md 快照 + index.json；与草稿互不相干
+const histDir = (p) => path.join(userData(), 'history', crypto.createHash('sha1').update(path.normalize(p)).digest('hex'));
+const HIST_KEEP = 100, HIST_MAX_AGE = 90 * 864e5;
+
+function histSnap(p, content) {
+  try {
+    const dir = histDir(p);
+    fs.mkdirSync(dir, { recursive: true });
+    const idxF = path.join(dir, 'index.json');
+    let idx = { path: p, snaps: [] };
+    try { idx = JSON.parse(fs.readFileSync(idxF, 'utf8')); } catch (e) {}
+    const last = idx.snaps[idx.snaps.length - 1];
+    if (last !== undefined) {
+      try { if (fs.readFileSync(path.join(dir, last + '.md'), 'utf8') === content) return; } catch (e) {}
+    }
+    const ts = Date.now();
+    fs.writeFileSync(path.join(dir, ts + '.md'), content, 'utf8');
+    idx.snaps.push(ts); idx.path = p;
+    const now = Date.now();
+    idx.snaps = idx.snaps.filter(t => now - t < HIST_MAX_AGE).slice(-HIST_KEEP);
+    for (const f of fs.readdirSync(dir)) {
+      if (f.endsWith('.md') && !idx.snaps.includes(+f.slice(0, -3))) fs.unlinkSync(path.join(dir, f));
+    }
+    fs.writeFileSync(idxF, JSON.stringify(idx));
+  } catch (e) { /* 历史是附属功能，失败不阻塞保存 */ }
+}
+
+// 文档重命名/移动时把历史一起带走
+function histMove(from, to) {
+  try {
+    const a = histDir(from), b = histDir(to);
+    if (!fs.existsSync(a)) return;
+    fs.mkdirSync(path.dirname(b), { recursive: true });
+    fs.renameSync(a, b);
+    try {
+      const idxF = path.join(b, 'index.json');
+      const idx = JSON.parse(fs.readFileSync(idxF, 'utf8'));
+      idx.path = to;
+      fs.writeFileSync(idxF, JSON.stringify(idx));
+    } catch (e) {}
+  } catch (e) {}
+}
+
+ipcMain.handle('hist.snap', (e, p, content) => { histSnap(p, content); return { ok: true }; });
+ipcMain.handle('hist.list', (e, p) => {
+  try {
+    const idx = JSON.parse(fs.readFileSync(path.join(histDir(p), 'index.json'), 'utf8'));
+    const snaps = idx.snaps.slice().reverse().map(ts => {
+      try { return { ts, size: fs.statSync(path.join(histDir(p), ts + '.md')).size }; }
+      catch (e) { return null; }
+    }).filter(Boolean);
+    return { ok: true, snaps };
+  } catch (err) { return { ok: true, snaps: [] }; }
+});
+ipcMain.handle('hist.read', (e, p, ts) => {
+  try { return { ok: true, content: fs.readFileSync(path.join(histDir(p), ts + '.md'), 'utf8') }; }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+ipcMain.handle('hist.clear', (e, p) => {
+  try { fs.rmSync(histDir(p), { recursive: true, force: true }); return { ok: true }; }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+// 行级 diff（diff-match-patch 的 linesToChars 模式），a=旧 b=新
+ipcMain.handle('hist.diff', (e, a, b) => {
+  const DMP = require('diff-match-patch');
+  const dmp = new DMP();
+  const { chars1, chars2, lineArray } = dmp.diff_linesToChars_(a, b);
+  const diffs = dmp.diff_main(chars1, chars2, false);
+  dmp.diff_charsToLines_(diffs, lineArray);
+  return { ok: true, diffs };
 });
 
 // ---------- 查找 ----------

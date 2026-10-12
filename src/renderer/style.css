@@ -383,8 +383,6 @@ body.dark {
 
 #msgdlg.hidden { display: none; }
 
-#msgdlg button.hidden { display: none; }
-
 #msgdlg-box {
   background: var(--ui-card);
   border: 1px solid var(--ui-border);

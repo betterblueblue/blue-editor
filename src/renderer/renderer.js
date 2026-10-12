@@ -308,17 +308,21 @@ function ctxPrompt(placeholder, def) {
 // 自定义消息框：原生 alert/confirm 无皮肤样式且同步阻塞 JS，
 // 换成走 --ui-* 变量的弹层，自动跟随皮肤。返回点击的按钮下标。
 // 主进程也通过 __ed.choiceBox 复用它（更新提示、关闭确认）。
+let msgPending = null; // 未决弹窗的取消函数；新弹窗到达时先把它按取消解决，防挂起
 function choiceBox(text, labels, cancelIdx) {
+  if (msgPending) { const p = msgPending; msgPending = null; p(); }
   return new Promise((resolve) => {
     const dlg = document.getElementById('msgdlg');
     const btns = dlg.querySelector('.dlg-btns');
     const cIdx = cancelIdx == null ? labels.length - 1 : cancelIdx;
     document.getElementById('msgdlg-text').textContent = text;
     const done = (v) => {
+      msgPending = null;
       dlg.classList.add('hidden');
       document.removeEventListener('keydown', onKey, true);
       resolve(v);
     };
+    msgPending = () => done(cIdx);
     btns.innerHTML = '';
     const els = labels.map((label, i) => {
       const b = document.createElement('button');

@@ -1055,6 +1055,19 @@ async function buildWechatHTML(themeKey, md) {
   }
 }
 
+// 渲染层 Async Clipboard API 一次写 text/html + text/plain 两个格式。
+// 注意别用主进程 clipboard.write：Electron 44 在 Windows 上实测静默失效
+// （写返回成功但剪贴板内容不变，独立进程也复现）。
+async function copyHtml(html, text) {
+  try {
+    await navigator.clipboard.write([new ClipboardItem({
+      'text/html': new Blob([html], { type: 'text/html' }),
+      'text/plain': new Blob([text], { type: 'text/plain' })
+    })]);
+    return true;
+  } catch (e) { return false; }
+}
+
 // ---------- 公众号格式选择框 ----------
 const WC_SAMPLE = '## 示例标题\n\n这是一段**加粗**和*斜体*混排的示例正文，' +
   '用来展示当前主题的排版效果。[示例链接](https://example.com) 也在这里。\n\n' +
@@ -1090,7 +1103,7 @@ document.getElementById('wcdlg').addEventListener('click',
   e => { if (e.target.id === 'wcdlg') e.currentTarget.classList.add('hidden'); });
 document.getElementById('wc-copy').onclick = async () => {
   const r = await buildWechatHTML(wcTheme);
-  await bridge.invoke('clipboard.write', { html: r.html, text: r.text });
+  if (!(await copyHtml(r.html, r.text))) { alert('复制失败，请重试'); return; }
   document.getElementById('wcdlg').classList.add('hidden');
   let msg = '已复制，请到公众号编辑器粘贴';
   if (r.localImgs) msg += `\n注意：${r.localImgs} 张本地图片已替换为占位，需在公众号后台重新插入`;

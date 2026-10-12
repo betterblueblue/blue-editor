@@ -1,5 +1,5 @@
 // 主进程：薄壳——窗口、文件读写、设置、最近文档、草稿备份、argv/单实例、导出、pandoc
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell, clipboard, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, session } = require('electron');
 const { spawn } = require('child_process');
 const os = require('os');
 const crypto = require('crypto');
@@ -781,11 +781,6 @@ ipcMain.handle('export.cssBundle', () => {
     } catch (e) { /* 文件缺了就跳过 */ }
   }
   return css;
-});
-
-ipcMain.handle('clipboard.write', (e, payload) => {
-  clipboard.write({ text: payload.text || '', html: payload.html || '' });
-  return { ok: true };
 });
 
 // ---------- 版本历史 ----------

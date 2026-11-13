@@ -710,16 +710,70 @@ function restoreDrafts() {
 }
 
 // ---------- 导出 ----------
-ipcMain.handle('export.pdf', async (e, defaultName) => {
+// 离屏静态正文 → PDF。
+// 以前直接 printToPDF 当前窗口：会把皮肤背景（深色皮肤导出黑底）、编辑态
+// contenteditable DOM、flex/滚动容器、当前编辑模式（源码模式会打出 Markdown
+// 符号）一并带进 PDF，长文档排版彻底走样。改成与 HTML 导出同一份
+// Vditor.preview 静态渲染结果，再在隐藏窗口里打印，输出只跟正文有关。
+function renderHtmlToPdf(html) {
+  return new Promise((resolve, reject) => {
+    const tmp = path.join(app.getPath('temp'),
+      'blue-editor-pdf-' + Date.now() + '-' + Math.random().toString(16).slice(2) + '.html');
+    fs.writeFileSync(tmp, html, 'utf8');
+    let off = null;
+    let done = false;
+    const finish = (err, data) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { fs.unlinkSync(tmp); } catch (e) { /* 临时文件清不掉不影响结果 */ }
+      if (off && !off.isDestroyed()) off.destroy();
+      err ? reject(err) : resolve(data);
+    };
+    const timer = setTimeout(() => finish(new Error('PDF 渲染超时')), 30000);
+    try {
+      off = new BrowserWindow({
+        show: false,
+        width: 794, height: 1123,
+        skipTaskbar: true,
+        webPreferences: {
+          nodeIntegration: false, contextIsolation: true, sandbox: true,
+          javascript: false // 预览结果里没有脚本，公式/图表已渲染成静态 DOM
+        }
+      });
+    } catch (err) { finish(err); return; }
+
+    off.webContents.once('did-finish-load', async () => {
+      try {
+        // 等字体 / KaTeX / 图表排完版；页面无脚本，不需要等网络
+        await new Promise(r => setTimeout(r, 250));
+        const data = await off.webContents.printToPDF({ printBackground: true, pageSize: 'A4' });
+        finish(null, data);
+      } catch (err) { finish(err); }
+    });
+    off.webContents.once('did-fail-load', (_e, code, desc) => {
+      finish(new Error('PDF 页面加载失败: ' + (desc || code)));
+    });
+    off.loadFile(tmp);
+  });
+}
+
+ipcMain.handle('export.pdf', async (e, defaultName, html) => {
   const w = winOf(e);
   const r = await dialog.showSaveDialog(w, {
     defaultPath: defaultName || 'untitled.pdf',
     filters: [{ name: 'PDF', extensions: ['pdf'] }]
   });
   if (r.canceled || !r.filePath) return null;
-  const data = await w.webContents.printToPDF({ printBackground: true });
-  fs.writeFileSync(r.filePath, data);
-  return { ok: true, path: r.filePath };
+  try {
+    const data = html
+      ? await renderHtmlToPdf(html)
+      : await w.webContents.printToPDF({ printBackground: true, pageSize: 'A4' });
+    fs.writeFileSync(r.filePath, data);
+    return { ok: true, path: r.filePath };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 });
 
 ipcMain.handle('export.html', async (e, html, defaultName) => {

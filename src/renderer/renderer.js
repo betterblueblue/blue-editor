@@ -561,28 +561,50 @@ let findIndex = null;     // {term, nodes:[{node,s,e}], hits:[{s,e}], cur}
 function buildFindIndex(term) {
   const nodes = [];
   let text = '';
-  const root = document.querySelector('.vditor-reset');
+  let ta = null;
+  if (mode === 'sv') {
+    // 源码模式没有 .vditor-reset，正文就是 textarea 的 value；
+    // 以前这里 root=null，索引恒为空 → 查找/替换完全失效
+    ta = document.querySelector('#vditor textarea');
+    if (ta) text = ta.value;
+  }
+  const root = ta ? null : document.querySelector('.vditor-reset');
   if (root) {
+    // 每个文本节点读 offsetWidth/offsetHeight 会强制同步布局，大文档（尤其 IR
+    // 的超大 DOM）下会卡住整个界面。Vditor 用 display:none 藏起未激活块的
+    // Markdown 标记，改走计算样式 + 沿祖先链缓存：只算样式、不触发布局。
+    const hiddenCache = new WeakMap();
+    const isHidden = (el) => {
+      for (let p = el; p && p.nodeType === 1; p = p.parentElement) {
+        let h = hiddenCache.get(p);
+        if (h === undefined) {
+          const cs = getComputedStyle(p);
+          h = cs.display === 'none' || cs.visibility === 'hidden' || cs.visibility === 'collapse';
+          hiddenCache.set(p, h);
+        }
+        if (h) return true;
+      }
+      return false;
+    };
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode: (n) => {
         if (!n.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
-        const el = n.parentElement;
-        // 跳过 display:none 的节点（Vditor 会藏起未激活块的 Markdown 标记）
-        if (el && !el.offsetWidth && !el.offsetHeight) return NodeFilter.FILTER_REJECT;
-        return NodeFilter.FILTER_ACCEPT;
+        return isHidden(n.parentElement) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
       }
     });
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
       nodes.push({ node: n, s: text.length, e: text.length + n.nodeValue.length });
       text += n.nodeValue;
     }
+  } else if (ta) {
+    nodes.push({ node: ta, s: 0, e: text.length });
   }
   const low = text.toLowerCase(), q = term.toLowerCase();
   const hits = [];
   for (let i = low.indexOf(q); i !== -1; i = low.indexOf(q, i + 1)) {
     hits.push({ s: i, e: i + q.length });
   }
-  findIndex = { term, nodes, hits, cur: -1 };
+  findIndex = { term, nodes, hits, cur: -1, ta };
 }
 
 // 全局偏移 → 所属文本节点（二分）
@@ -604,6 +626,8 @@ function updateFindCount() {
 function jumpFind(dir) {
   const term = $find('find-input').value;
   if (!term) { findIndex = null; updateFindCount(); return; }
+  // 源码模式正文是 textarea.value，随时会变，不复用索引
+  if (findIndex && findIndex.ta) findIndex = null;
   // term 变了、没建过、或文档被重建过（旧节点已脱离 DOM）都要重扫
   if (!findIndex || findIndex.term !== term || !findIndex.nodes.length || !findIndex.nodes[0].node.isConnected) {
     buildFindIndex(term);
@@ -612,6 +636,12 @@ function jumpFind(dir) {
   if (!hits.length) { findIndex.cur = -1; updateFindCount(); return; }
   findIndex.cur = ((findIndex.cur + dir) % hits.length + hits.length) % hits.length;
   const hit = hits[findIndex.cur];
+  if (findIndex.ta) {
+    // textarea 没有文本节点，用原生选区定位；不抢焦点，否则没法继续输入查找词
+    findIndex.ta.setSelectionRange(hit.s, hit.e);
+    updateFindCount();
+    return;
+  }
   const a = findNodeAt(hit.s), b = findNodeAt(hit.e - 1);
   const range = document.createRange();
   range.setStart(a.node, hit.s - a.s);
@@ -666,10 +696,15 @@ function initFindbar() {
     const from = input.value, to = $find('replace-input').value;
     if (!from || !vditor) return;
     const md = getMd();
-    const cnt = md.split(from).length - 1;
+    // 查找是忽略大小写的（buildFindIndex 用 toLowerCase），替换必须同语义：
+    // 以前 md.split(from) 区分大小写，搜 blue 能命中 690 处却一处也换不掉。
+    // 用函数形式替换，避免替换文本里的 $& / $1 被当成替换模式。
+    const esc = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(esc, 'gi');
+    const cnt = (md.match(re) || []).length;
     if (!cnt) { showAlert('未找到: ' + from); return; }
-    if (!await confirmBox(`确定把 ${cnt} 处「${from}」替换为「${to}」？`)) return;
-    vditor.setValue(md.split(from).join(to));
+    if (!await confirmBox(`确定把 ${cnt} 处「${from}」替换为「${to}」？\n（按 Markdown 源文本替换，代码块内也会命中）`)) return;
+    vditor.setValue(md.replace(re, () => to));
     markDirty();
   };
 }
@@ -972,9 +1007,13 @@ bridge.onMenuAction(async (action, payload) => {
     case 'file:history': openHistory(); break;
     case 'view:mode': setMode(payload); break;
     case 'view:theme': await setTheme(payload); break;
-    case 'export:pdf':
-      await bridge.invoke('export.pdf', exportName('.pdf'));
+    case 'export:pdf': {
+      // 交给主进程离屏打印静态正文，而不是打印当前编辑窗口
+      const html = await buildHTMLDoc();
+      const r = await bridge.invoke('export.pdf', exportName('.pdf'), html);
+      if (r && r.ok === false) showAlert('PDF 导出失败: ' + r.error);
       break;
+    }
     case 'export:html':
       await bridge.invoke('export.html', buildHTMLDoc(), exportName('.html'));
       break;
@@ -1321,6 +1360,11 @@ async function buildHTMLDoc() {
       escapeHtml(basename(currentPath) || 'untitled') +
       '</title><style>' + css +
       '\nbody{max-width:860px;margin:2em auto;padding:0 1em}' +
+      // PDF 走的是这份 HTML：页边距、避免标题孤行 / 代码块与表格跨页断裂
+      '\n@page{size:A4;margin:1.6cm}' +
+      '\n@media print{body{max-width:none!important;margin:0!important;padding:0!important}' +
+      'pre,blockquote,table,img,figure,.katex-display{break-inside:avoid}' +
+      'h1,h2,h3,h4,h5,h6{break-after:avoid}}' +
       '</style></head><body class="vditor-reset">' + host.innerHTML + '</body></html>';
   } finally {
     host.remove();

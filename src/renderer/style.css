@@ -602,11 +602,76 @@ body.no-toolbar #vditor:not(.vditor--fullscreen) .vditor-toolbar {
 
 /* PNG 导出改用窗口拉高方案（main.js export.png），不再需要 capture 展开样式 */
 
+/* ---------- 导出进度 ---------- */
+#progressdlg {
+  position: fixed;
+  inset: 0;
+  z-index: 340;
+  background: rgba(0,0,0,.25);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 24vh;
+}
+#progressdlg.hidden { display: none; }
+#progressdlg-box {
+  background: var(--ui-card);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  padding: 18px 20px 16px;
+  width: 340px;
+  max-width: 86vw;
+  box-shadow: 0 8px 30px rgba(0,0,0,.25);
+}
+#progress-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ui-text);
+  margin-bottom: 6px;
+}
+#progress-text {
+  font-size: 12px;
+  color: var(--ui-text2);
+  min-height: 18px;
+  margin-bottom: 12px;
+}
+#progress-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--ui-border);
+  overflow: hidden;
+}
+#progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background-color: var(--ui-accent);
+  background-image: linear-gradient(115deg, rgba(255,255,255,.28) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.28) 50%, rgba(255,255,255,.28) 75%, transparent 75%);
+  background-size: 18px 18px;
+  transition: width .3s ease;
+  animation: progress-stripes .7s linear infinite;
+}
+@keyframes progress-stripes {
+  from { background-position: 0 0; }
+  to { background-position: 18px 0; }
+}
+#progress-pct {
+  margin-top: 8px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--ui-icon);
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  #progress-fill { animation: none; }
+}
+
 /* 打印/导出 PDF：只留编辑内容，且把内部滚动容器展开成全文高
    （不展开的话 PDF/打印只出第一屏——.vditor-reset 是真正的滚动容器） */
 @media print {
   #findbar,
   #conflictbar,
+  #progressdlg,
   #sidebar,
   .vditor-toolbar,
   .vditor-outline,

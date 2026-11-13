@@ -8,7 +8,7 @@ const ALLOWED_INVOKE = new Set([
   'fs.createFile', 'fs.createDir', 'fs.rename', 'fs.trash',
   'asset.save',
   'draft.save', 'draft.clear',
-  'export.pdf', 'export.html', 'export.png', 'export.cssBundle',
+  'export.pdfPath', 'export.pdf', 'export.html', 'export.png', 'export.cssBundle',
   'file.readBase64', 'shell.openExternal',
   'hist.list', 'hist.read', 'hist.snap', 'hist.clear', 'hist.diff',
   'app.closeNow',
@@ -26,5 +26,6 @@ contextBridge.exposeInMainWorld('bridge', {
   pathOf: (f) => { try { return webUtils.getPathForFile(f); } catch (e) { return ''; } },
   onMenuAction: (cb) => ipcRenderer.on('menu:action', (e, m) => cb(m.action, m.payload)),
   onDirChanged: (cb) => ipcRenderer.on('dir:changed', () => cb()),
-  onFileChanged: (cb) => ipcRenderer.on('file:changed', (e, p) => cb(p))
+  onFileChanged: (cb) => ipcRenderer.on('file:changed', (e, p) => cb(p)),
+  onExportProgress: (cb) => ipcRenderer.on('export:progress', (e, p) => cb(p))
 });

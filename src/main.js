@@ -715,7 +715,7 @@ function restoreDrafts() {
 // contenteditable DOM、flex/滚动容器、当前编辑模式（源码模式会打出 Markdown
 // 符号）一并带进 PDF，长文档排版彻底走样。改成与 HTML 导出同一份
 // Vditor.preview 静态渲染结果，再在隐藏窗口里打印，输出只跟正文有关。
-function renderHtmlToPdf(html) {
+function renderHtmlToPdf(html, report) {
   return new Promise((resolve, reject) => {
     const tmp = path.join(app.getPath('temp'),
       'blue-editor-pdf-' + Date.now() + '-' + Math.random().toString(16).slice(2) + '.html');
@@ -747,6 +747,7 @@ function renderHtmlToPdf(html) {
       try {
         // 等字体 / KaTeX / 图表排完版；页面无脚本，不需要等网络
         await new Promise(r => setTimeout(r, 250));
+        if (report) report(78, '正在排版 PDF…');
         const data = await off.webContents.printToPDF({ printBackground: true, pageSize: 'A4' });
         finish(null, data);
       } catch (err) { finish(err); }
@@ -754,23 +755,32 @@ function renderHtmlToPdf(html) {
     off.webContents.once('did-fail-load', (_e, code, desc) => {
       finish(new Error('PDF 页面加载失败: ' + (desc || code)));
     });
+    if (report) report(68, '正在加载打印页面…');
     off.loadFile(tmp);
   });
 }
 
-ipcMain.handle('export.pdf', async (e, defaultName, html) => {
-  const w = winOf(e);
-  const r = await dialog.showSaveDialog(w, {
+// 保存路径单独一步：模态框在进度框出现之前弹完，取消时直接结束
+ipcMain.handle('export.pdfPath', async (e, defaultName) => {
+  const r = await dialog.showSaveDialog(winOf(e), {
     defaultPath: defaultName || 'untitled.pdf',
     filters: [{ name: 'PDF', extensions: ['pdf'] }]
   });
-  if (r.canceled || !r.filePath) return null;
+  return r.canceled || !r.filePath ? null : r.filePath;
+});
+
+ipcMain.handle('export.pdf', async (e, html, filePath) => {
+  const report = (percent, text) => {
+    try { e.sender.send('export:progress', { percent, text }); } catch (err) {}
+  };
+  if (!filePath) return { ok: false, error: '未选择保存路径' };
   try {
-    const data = html
-      ? await renderHtmlToPdf(html)
-      : await w.webContents.printToPDF({ printBackground: true, pageSize: 'A4' });
-    fs.writeFileSync(r.filePath, data);
-    return { ok: true, path: r.filePath };
+    report(60, '正在准备打印…');
+    const data = await renderHtmlToPdf(html, report);
+    report(96, '正在写入文件…');
+    fs.writeFileSync(filePath, data);
+    report(100, '导出完成');
+    return { ok: true, path: filePath };
   } catch (err) {
     return { ok: false, error: err.message };
   }

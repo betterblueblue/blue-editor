@@ -1008,10 +1008,30 @@ bridge.onMenuAction(async (action, payload) => {
     case 'view:mode': setMode(payload); break;
     case 'view:theme': await setTheme(payload); break;
     case 'export:pdf': {
-      // 交给主进程离屏打印静态正文，而不是打印当前编辑窗口
-      const html = await buildHTMLDoc();
-      const r = await bridge.invoke('export.pdf', exportName('.pdf'), html);
-      if (r && r.ok === false) showAlert('PDF 导出失败: ' + r.error);
+      // 先选路径再显示进度：模态保存框不会盖住进度框，取消时也不会闪进度条
+      const filePath = await bridge.invoke('export.pdfPath', exportName('.pdf'));
+      if (!filePath) break;
+      showProgress('导出 PDF');
+      try {
+        setProgress(12, '正在渲染正文…');
+        await nextPaint();
+        const html = await buildHTMLDoc();
+        setProgress(55, '正在生成 PDF…');
+        await nextPaint();
+        const res = await bridge.invoke('export.pdf', html, filePath);
+        if (res && res.ok === false) {
+          hideProgress();
+          showAlert('PDF 导出失败: ' + res.error);
+        } else {
+          setProgress(100, '导出完成');
+          await new Promise(done => setTimeout(done, 350));
+        }
+      } catch (err) {
+        hideProgress();
+        showAlert('PDF 导出失败: ' + (err && err.message ? err.message : err));
+      } finally {
+        hideProgress();
+      }
       break;
     }
     case 'export:html':
@@ -1328,6 +1348,32 @@ document.getElementById('wc-copy').onclick = async () => {
   showAlert(msg);
 };
 
+// ---------- 导出进度 ----------
+// 主进程在生成 PDF 的各阶段推送进度；导出期间把回调接到进度框上。
+// 保存路径单独先选，模态框不会盖在进度框上，取消时也不会闪一下进度条。
+let exportProgressHandler = null;
+bridge.onExportProgress((p) => {
+  if (exportProgressHandler) exportProgressHandler(p.percent, p.text);
+});
+const nextPaint = () => new Promise(r => setTimeout(r, 50));
+
+function showProgress(title) {
+  document.getElementById('progress-title').textContent = title;
+  exportProgressHandler = setProgress;
+  document.getElementById('progressdlg').classList.remove('hidden');
+  setProgress(0, '正在准备…');
+}
+function setProgress(percent, text) {
+  const p = Math.max(0, Math.min(100, Math.round(percent)));
+  document.getElementById('progress-fill').style.width = p + '%';
+  document.getElementById('progress-pct').textContent = p + '%';
+  if (text) document.getElementById('progress-text').textContent = text;
+}
+function hideProgress() {
+  exportProgressHandler = null;
+  document.getElementById('progressdlg').classList.add('hidden');
+}
+
 const exportName = (ext) =>
   (basename(currentPath) || 'untitled').replace(/\.[^.]+$/, '') + ext;
 
@@ -1420,7 +1466,7 @@ window.__ed = {
   get dirty() { return dirty; },
   save, saveAs, setMode,
   // 测试句柄
-  buildHTMLDoc, buildWechatHTML, fixTypography, undoTypography, openHistory, openWechatPicker, flushDraft, extractHeads, moveSection, renderTree, expandedDirs, dirCache, setTheme, showAlert, confirmBox, choiceBox, jumpFind,
+  buildHTMLDoc, buildWechatHTML, fixTypography, undoTypography, openHistory, openWechatPicker, flushDraft, extractHeads, moveSection, renderTree, expandedDirs, dirCache, setTheme, showAlert, confirmBox, choiceBox, jumpFind, showProgress, setProgress, hideProgress,
   get outlineHeads() { return outlineHeads; }
 };
 
